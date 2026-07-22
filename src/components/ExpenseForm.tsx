@@ -102,16 +102,19 @@ export default function ExpenseForm({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
         >
+          {/* Solid overlay (no backdrop-blur): blurring the whole screen while
+              fading in is very expensive on phones and made the popup crawl. */}
           <div
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/60"
             onClick={onClose}
           />
           <motion.div
-            initial={{ y: 60, opacity: 0, scale: 0.98 }}
-            animate={{ y: 0, opacity: 1, scale: 1 }}
+            initial={{ y: 60, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
             exit={{ y: 40, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 320, damping: 30 }}
+            transition={{ type: "spring", stiffness: 420, damping: 34 }}
             className="glass-strong relative z-10 max-h-[92vh] w-full overflow-y-auto rounded-t-4xl p-6 sm:max-w-lg sm:rounded-4xl"
           >
             <div className="mb-5 flex items-center justify-between">
@@ -164,10 +167,12 @@ export default function ExpenseForm({
                     <button
                       type="button"
                       key={c.name}
-                      onClick={() => setCategory(c.name)}
-                      // Double-clicking a category clears the current selection.
-                      onDoubleClick={() => setCategory("")}
-                      title="Double-click to clear"
+                      // Tap toggles: tapping the selected category again clears it.
+                      // (Works on touch devices, unlike double-click.)
+                      onClick={() =>
+                        setCategory((prev) => (prev === c.name ? "" : c.name))
+                      }
+                      title="Tap again to clear"
                       className={cn(
                         "pill select-none transition",
                         category === c.name
