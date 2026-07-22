@@ -27,7 +27,7 @@ body {
    *  - a dark inset shadow along the bottom gives the pane thickness
    */
   .glass {
-    @apply relative border border-white/15 bg-white/[0.08] backdrop-blur-2xl;
+    @apply relative border border-white/15 bg-white/[0.08] backdrop-blur-lg;
     background-image: linear-gradient(
       160deg,
       rgba(255, 255, 255, 0.2) 0%,
@@ -43,7 +43,7 @@ body {
   }
 
   .glass-strong {
-    @apply relative border border-white/20 bg-white/[0.12] backdrop-blur-2xl;
+    @apply relative border border-white/20 bg-white/[0.12] backdrop-blur-xl;
     background-image: linear-gradient(
       160deg,
       rgba(255, 255, 255, 0.28) 0%,
@@ -60,7 +60,7 @@ body {
 
   .glass-input {
     @apply w-full rounded-2xl border border-white/15 px-4 py-3 text-white
-      placeholder-white/40 outline-none backdrop-blur-xl transition
+      placeholder-white/40 outline-none backdrop-blur-md transition
       focus:border-white/40 focus:ring-2 focus:ring-white/25;
     background-image: linear-gradient(
       160deg,
@@ -74,7 +74,7 @@ body {
 
   .glass-btn {
     @apply inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20
-      px-5 py-3 font-medium text-white backdrop-blur-xl transition
+      px-5 py-3 font-medium text-white backdrop-blur-md transition
       hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98]
       disabled:cursor-not-allowed disabled:opacity-50;
     background-image: linear-gradient(
@@ -136,5 +136,39 @@ body {
   background: rgba(20, 22, 40, 0.85) !important;
   border: 1px solid rgba(255, 255, 255, 0.18) !important;
   border-radius: 14px !important;
-  backdrop-filter: blur(12px);
+}
+
+/*
+ * Phones: heavy backdrop blur is the main source of jank because every glass
+ * panel re-rasterizes while scrolling. Cap it to a cheap radius and lean on a
+ * slightly more opaque background so panels still read as "glass" but stay
+ * buttery smooth.
+ */
+@media (max-width: 640px) {
+  .glass,
+  .glass-strong,
+  .glass-input,
+  .glass-btn,
+  .pill {
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+  .glass {
+    background-color: rgba(16, 18, 36, 0.55);
+  }
+  .glass-strong {
+    background-color: rgba(16, 18, 36, 0.68);
+  }
+}
+
+/* Respect users who prefer less motion: kill long/looping animations. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

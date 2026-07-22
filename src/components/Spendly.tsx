@@ -100,32 +100,31 @@ export default function Spendly() {
 
       <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
         {/* Header */}
-        <header className="mb-8 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-[#7c8cff] to-[#ff6bd0] shadow-glow">
-              <Wallet className="h-5 w-5" />
+        <header className="mb-8 flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-[#7c8cff] to-[#ff6bd0] shadow-glow sm:h-11 sm:w-11">
+              <Wallet className="h-4 w-4 sm:h-5 sm:w-5" />
             </div>
-            <div>
-              <h1 className="text-lg font-semibold leading-tight">Spendly</h1>
-              <p className="text-xs text-white/50">
+            <div className="min-w-0">
+              <h1 className="text-base font-semibold leading-tight sm:text-lg">Spendly-Plus</h1>
+              <p className="truncate text-xs text-white/50">
                 {status === "authed" ? `Space · ${name}` : "Liquid-glass expense tracker"}
               </p>
             </div>
           </div>
 
           {status === "authed" && (
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
               <CurrencySelect />
               <button
                 onClick={() => {
                   setEditing(null);
                   setFormOpen(true);
                 }}
-                className="glass-btn-primary px-4 py-2.5"
+                className="glass-btn-primary px-3 py-2.5 sm:px-4"
               >
                 <Plus className="h-4 w-4" />
                 <span className="hidden sm:inline">Add expense</span>
-                <span className="sm:hidden">Add</span>
               </button>
               <button onClick={handleLogout} className="glass-btn px-3 py-2.5" aria-label="Lock space">
                 <LogOut className="h-4 w-4" />
@@ -217,7 +216,7 @@ export default function Spendly() {
       </AnimatePresence>
 
       <footer className="pb-8 pt-4 text-center text-xs text-white/35">
-        Spendly · built with Next.js · deploy-ready for Vercel
+        Spendly-Plus · built with Next.js · deploy-ready for Vercel
       </footer>
     </main>
     </CurrencyProvider>

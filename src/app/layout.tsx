@@ -3,15 +3,15 @@ import "./globals.css";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 
 export const metadata: Metadata = {
-  title: "Spendly — Liquid Glass Expense Tracker",
+  title: "Spendly-Plus — Liquid Glass Expense Tracker",
   description:
     "A beautiful, interactive way to track daily, monthly and yearly expenses. Set a passphrase and keep your spending private.",
-  applicationName: "Spendly",
+  applicationName: "Spendly-Plus",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Spendly",
+    title: "Spendly-Plus",
   },
   icons: {
     icon: [

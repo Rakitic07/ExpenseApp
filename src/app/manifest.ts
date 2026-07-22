@@ -1,11 +1,11 @@
 import type { MetadataRoute } from "next";
 
-// Web App Manifest — makes Spendly installable on Android/iOS home screens as a
-// PWA. Next.js serves this at /manifest.webmanifest automatically.
+// Web App Manifest — makes Spendly-Plus installable on Android/iOS home screens
+// as a PWA. Next.js serves this at /manifest.webmanifest automatically.
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Spendly — Expense Tracker",
-    short_name: "Spendly",
+    name: "Spendly-Plus — Expense Tracker",
+    short_name: "Spendly-Plus",
     description:
       "A beautiful, interactive way to track daily, monthly and yearly expenses. Set a passphrase and keep your spending private.",
     start_url: "/",

@@ -1,4 +1,4 @@
-# 💸 Spendly — Liquid-Glass Expense Tracker
+# 💸 Spendly-Plus — Liquid-Glass Expense Tracker
 
 A beautiful, interactive expense tracker with an Apple / iOS-style **liquid glass**
 UI. Log daily, monthly and yearly expenses, visualise them with live donut, trend
@@ -107,7 +107,7 @@ npm run dev
 
 ## 📱 Install on your phone (PWA)
 
-Spendly is a **Progressive Web App**, so you can install it like a native app —
+Spendly-Plus is a **Progressive Web App**, so you can install it like a native app —
 no separate Android build and no database credentials on the device. The app
 talks only to the deployed HTTPS API, which owns Prisma + Postgres, so anything
 you add on your phone syncs to the exact same database as the web app.

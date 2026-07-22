@@ -69,6 +69,10 @@ export default function ExpenseForm({
       setError("Enter a valid amount greater than 0.");
       return;
     }
+    if (!category) {
+      setError("Please pick a category.");
+      return;
+    }
     setBusy(true);
     try {
       await onSave(
@@ -161,8 +165,11 @@ export default function ExpenseForm({
                       type="button"
                       key={c.name}
                       onClick={() => setCategory(c.name)}
+                      // Double-clicking a category clears the current selection.
+                      onDoubleClick={() => setCategory("")}
+                      title="Double-click to clear"
                       className={cn(
-                        "pill transition",
+                        "pill select-none transition",
                         category === c.name
                           ? "ring-2 ring-white/60"
                           : "opacity-70 hover:opacity-100"

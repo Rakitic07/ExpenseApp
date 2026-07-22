@@ -1,8 +1,8 @@
 {
-  "name": "spendly",
+  "name": "spendly-plus",
   "version": "1.0.0",
   "private": true,
-  "description": "Spendly — a glassy, interactive expense tracker deployable to Vercel",
+  "description": "Spendly-Plus — a glassy, interactive expense tracker deployable to Vercel",
   "scripts": {
     "predev": "prisma generate --schema prisma/schema.sqlite.prisma",
     "dev": "next dev",

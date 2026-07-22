@@ -1,11 +1,11 @@
-/* Spendly service worker.
+/* Spendly-Plus service worker.
  *
  * Goal: make the app installable and resilient offline WITHOUT caching any
  * sensitive/dynamic data. Auth and expense APIs are never cached — they always
  * go to the network so the phone and web stay in sync and no private data is
  * persisted on disk by the SW. Only the static app shell is cached.
  */
-const CACHE = "spendly-shell-v1";
+const CACHE = "spendly-plus-shell-v1";
 
 // The app shell we can safely precache for an offline fallback.
 const SHELL = ["/", "/manifest.webmanifest", "/icons/icon-192.png"];
