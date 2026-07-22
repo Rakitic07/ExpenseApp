@@ -1,0 +1,38 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// A Ledger is one person's private space, unlocked by a passphrase.
+model Ledger {
+  id        String    @id @default(cuid())
+  // Case-insensitive uniqueness is enforced in application code via nameKey.
+  name      String
+  nameKey   String    @unique
+  // bcrypt hash of the passphrase. Never store the raw passphrase.
+  passHash  String
+  createdAt DateTime  @default(now())
+  expenses  Expense[]
+}
+
+model Expense {
+  id        String   @id @default(cuid())
+  ledgerId  String
+  ledger    Ledger   @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
+
+  title     String // e.g. "Sabji", "Petrol"
+  category  String // e.g. "Grocery", "Bills"
+  amount    Float
+  paidBy    String
+  date      DateTime // the day the expense happened
+  notes     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ledgerId, date])
+}

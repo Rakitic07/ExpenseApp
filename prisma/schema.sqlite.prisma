@@ -1,0 +1,40 @@
+// LOCAL DEVELOPMENT ONLY.
+// This mirrors prisma/schema.prisma but uses a zero-setup SQLite file so you
+// can run the app locally without a Postgres server. Production (Vercel) uses
+// prisma/schema.prisma (PostgreSQL). Keep the models below in sync with it.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Ledger {
+  id        String    @id @default(cuid())
+  name      String
+  nameKey   String    @unique
+  passHash  String
+  createdAt DateTime  @default(now())
+  expenses  Expense[]
+}
+
+model Expense {
+  id       String @id @default(cuid())
+  ledgerId String
+  ledger   Ledger @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
+
+  title    String
+  category String
+  amount   Float
+  paidBy   String
+  date     DateTime
+  notes    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ledgerId, date])
+}
