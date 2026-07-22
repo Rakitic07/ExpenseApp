@@ -14,6 +14,12 @@ export const api = {
     return handle<{ authenticated: boolean; name?: string }>(res);
   },
 
+  // Auth state + expenses in a single round trip (used on app startup).
+  async bootstrap() {
+    const res = await fetch("/api/bootstrap", { cache: "no-store" });
+    return handle<{ authenticated: boolean; name?: string; expenses?: Expense[] }>(res);
+  },
+
   async register(name: string, passphrase: string) {
     const res = await fetch("/api/auth/register", {
       method: "POST",

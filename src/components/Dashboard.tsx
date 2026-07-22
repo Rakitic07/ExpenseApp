@@ -35,11 +35,28 @@ import { MONTH_LABELS, cn } from "@/lib/utils";
 import { categoryMeta, CATEGORY_NAMES } from "@/lib/categories";
 import { useBudget } from "@/lib/useBudget";
 import { useCurrency } from "@/lib/currency";
-import CategoryDonut from "./charts/CategoryDonut";
-import TrendArea from "./charts/TrendArea";
-import Bars from "./charts/Bars";
+import dynamic from "next/dynamic";
 import ExpenseList from "./ExpenseList";
 import BudgetRing from "./BudgetRing";
+
+// Recharts is heavy, so the charts are code-split out of the initial bundle and
+// loaded on demand. This keeps first load (especially on phones) fast; a light
+// skeleton holds the layout while each chart's chunk streams in.
+const ChartFallback = () => (
+  <div className="h-[280px] w-full animate-pulse rounded-2xl bg-white/5" />
+);
+const CategoryDonut = dynamic(() => import("./charts/CategoryDonut"), {
+  ssr: false,
+  loading: ChartFallback,
+});
+const TrendArea = dynamic(() => import("./charts/TrendArea"), {
+  ssr: false,
+  loading: ChartFallback,
+});
+const Bars = dynamic(() => import("./charts/Bars"), {
+  ssr: false,
+  loading: ChartFallback,
+});
 
 type View = "month" | "year" | "all";
 

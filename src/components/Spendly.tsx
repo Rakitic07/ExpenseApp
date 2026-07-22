@@ -6,11 +6,25 @@ import { Plus, LogOut, Sparkles, Wallet, ShieldCheck, PartyPopper } from "lucide
 import { api } from "@/lib/api";
 import type { Expense, ExpenseDraft } from "@/lib/types";
 import { CurrencyProvider, formatFor } from "@/lib/currency";
+import {
+  readCache,
+  writeCache,
+  pendingCount,
+  draftToExpense,
+  enqueueCreate,
+  enqueueUpdate,
+  enqueueDelete,
+  sync as syncStore,
+  rememberSpace,
+  getLastSpace,
+  forgetSpace,
+} from "@/lib/offline";
 import Background from "./Background";
 import AuthCard from "./AuthCard";
 import Dashboard from "./Dashboard";
 import ExpenseForm from "./ExpenseForm";
 import CurrencySelect from "./CurrencySelect";
+import SyncButton from "./SyncButton";
 
 type Status = "loading" | "guest" | "authed";
 
@@ -21,10 +35,30 @@ export default function Spendly() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Expense | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [pending, setPending] = useState(0);
+  const [online, setOnline] = useState(true);
 
-  const loadExpenses = useCallback(async () => {
-    const { expenses } = await api.listExpenses();
-    setExpenses(expenses);
+  // Push queued writes to the DB, then pull the canonical list (when the queue
+  // is fully drained). Takes the space explicitly so it can run before the
+  // `name` state has settled (e.g. right after auth).
+  const runSync = useCallback(async (space: string) => {
+    if (!space) return;
+    setSyncing(true);
+    try {
+      const { expenses: fresh, mapped } = await syncStore(space);
+      if (Object.keys(mapped).length) {
+        setExpenses((prev) =>
+          prev.map((e) => (mapped[e.id] ? { ...e, id: mapped[e.id] } : e))
+        );
+      }
+      if (fresh) setExpenses(fresh);
+    } catch {
+      /* offline or server error — keep the local cache and queued writes */
+    } finally {
+      setSyncing(false);
+      setPending(pendingCount(space));
+    }
   }, []);
 
   // Unique, most-recent expense titles for quick re-entry in the form.
@@ -47,50 +81,129 @@ export default function Spendly() {
     window.setTimeout(() => setToast(null), 2600);
   }
 
+  // Show cached data instantly, then reconcile with the server in the
+  // background — this is the "opens fast even on a slow/absent network" path.
+  const enterSpace = useCallback(
+    (space: string) => {
+      setName(space);
+      setStatus("authed");
+      rememberSpace(space);
+      const cached = readCache(space);
+      if (cached.length) setExpenses(cached);
+      setPending(pendingCount(space));
+      void runSync(space);
+    },
+    [runSync]
+  );
+
   useEffect(() => {
     (async () => {
       try {
-        const me = await api.me();
-        if (me.authenticated && me.name) {
-          setName(me.name);
+        // Single startup call: auth state + expenses in one round trip.
+        const boot = await api.bootstrap();
+        if (boot.authenticated && boot.name) {
+          setName(boot.name);
           setStatus("authed");
-          await loadExpenses();
+          rememberSpace(boot.name);
+          const cached = readCache(boot.name);
+          if (cached.length) setExpenses(cached);
+          const pend = pendingCount(boot.name);
+          setPending(pend);
+          if (pend > 0) {
+            // Unsynced local writes exist — flush them, then refresh.
+            void runSync(boot.name);
+          } else if (boot.expenses) {
+            setExpenses(boot.expenses);
+            writeCache(boot.name, boot.expenses);
+          }
         } else {
           setStatus("guest");
         }
       } catch {
-        setStatus("guest");
+        // Offline (or server unreachable): fall back to the last space's cache
+        // so the app is still usable without a connection.
+        const last = getLastSpace();
+        if (last && readCache(last).length) {
+          setOnline(false);
+          setName(last);
+          setStatus("authed");
+          setExpenses(readCache(last));
+          setPending(pendingCount(last));
+        } else {
+          setStatus("guest");
+        }
       }
     })();
-  }, [loadExpenses]);
+  }, [runSync]);
 
-  async function handleAuthed(n: string) {
-    setName(n);
-    setStatus("authed");
-    await loadExpenses();
+  // Mirror the working set into the cache so a reload/offline open is instant.
+  useEffect(() => {
+    if (status === "authed" && name) writeCache(name, expenses);
+  }, [expenses, status, name]);
+
+  // Auto-sync when connectivity returns; track online/offline for the badge.
+  useEffect(() => {
+    if (typeof navigator !== "undefined") setOnline(navigator.onLine);
+    function onOnline() {
+      setOnline(true);
+      if (name) void runSync(name);
+    }
+    function onOffline() {
+      setOnline(false);
+    }
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, [name, runSync]);
+
+  function handleAuthed(n: string) {
+    enterSpace(n);
   }
 
   async function handleLogout() {
+    // Best-effort flush so unsynced changes aren't stranded (only if online).
+    if (name && typeof navigator !== "undefined" && navigator.onLine && pendingCount(name) > 0) {
+      try {
+        await runSync(name);
+      } catch {
+        /* ignore — queued writes stay for next unlock */
+      }
+    }
     await api.logout();
+    forgetSpace();
     setExpenses([]);
     setName("");
     setStatus("guest");
+    setPending(0);
   }
 
-  async function handleSave(draft: ExpenseDraft, id?: string) {
+  // Writes are applied locally first (instant + offline-friendly) and queued;
+  // runSync then flushes to the DB — a no-op that stays queued if offline.
+  function handleSave(draft: ExpenseDraft, id?: string) {
     if (id) {
-      await api.updateExpense(id, draft);
+      setExpenses((prev) => prev.map((e) => (e.id === id ? draftToExpense(draft, e) : e)));
+      enqueueUpdate(name, id, draft);
       showToast("Expense updated");
     } else {
-      await api.createExpense(draft);
+      const optimistic = draftToExpense(draft);
+      setExpenses((prev) => [optimistic, ...prev]);
+      enqueueCreate(name, optimistic.id, draft);
       showToast(`Added ${draft.title} · ${formatFor(name, draft.amount)}`);
     }
-    await loadExpenses();
+    setPending(pendingCount(name));
+    void runSync(name);
+    return Promise.resolve();
   }
 
-  async function handleDelete(id: string) {
-    await api.deleteExpense(id);
-    await loadExpenses();
+  function handleDelete(id: string) {
+    setExpenses((prev) => prev.filter((e) => e.id !== id));
+    enqueueDelete(name, id);
+    setPending(pendingCount(name));
+    void runSync(name);
+    return Promise.resolve();
   }
 
   return (
@@ -115,6 +228,12 @@ export default function Spendly() {
 
           {status === "authed" && (
             <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+              <SyncButton
+                online={online}
+                syncing={syncing}
+                pending={pending}
+                onSync={() => void runSync(name)}
+              />
               <CurrencySelect />
               <button
                 onClick={() => {

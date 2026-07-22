@@ -102,7 +102,7 @@ export default function ExpenseForm({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
+          transition={{ duration: 0.12 }}
         >
           {/* Solid overlay (no backdrop-blur): blurring the whole screen while
               fading in is very expensive on phones and made the popup crawl. */}
@@ -110,13 +110,11 @@ export default function ExpenseForm({
             className="absolute inset-0 bg-black/60"
             onClick={onClose}
           />
-          <motion.div
-            initial={{ y: 60, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 40, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 420, damping: 34 }}
-            className="glass-strong relative z-10 max-h-[92vh] w-full overflow-y-auto rounded-t-4xl p-6 sm:max-w-lg sm:rounded-4xl"
-          >
+          {/* Plain (non-animated) panel: the surface is frosted glass, and
+              animating a blurred element re-rasterizes it every frame, which was
+              the real cause of the slow, laggy open. A single quick fade on the
+              wrapper above is all the motion we need. */}
+          <div className="glass-strong relative z-10 max-h-[92vh] w-full overflow-y-auto rounded-t-4xl p-6 sm:max-w-lg sm:rounded-4xl">
             <div className="mb-5 flex items-center justify-between">
               <h3 className="text-lg font-semibold">
                 {editing ? "Edit expense" : "Add expense"}
@@ -277,7 +275,7 @@ export default function ExpenseForm({
                 </button>
               </div>
             </form>
-          </motion.div>
+          </div>
         </motion.div>
       )}
     </AnimatePresence>
