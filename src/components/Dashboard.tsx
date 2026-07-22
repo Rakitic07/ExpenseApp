@@ -33,7 +33,6 @@ import {
 } from "@/lib/analytics";
 import { MONTH_LABELS, cn } from "@/lib/utils";
 import { categoryMeta, CATEGORY_NAMES } from "@/lib/categories";
-import { useBudget } from "@/lib/useBudget";
 import { useCurrency } from "@/lib/currency";
 import dynamic from "next/dynamic";
 import ExpenseList from "./ExpenseList";
@@ -142,12 +141,15 @@ export default function Dashboard({
   expenses,
   readOnly,
   onEdit,
-  spaceName = "",
+  budget = null,
+  onSetBudget,
 }: {
   expenses: Expense[];
   readOnly?: boolean;
   onEdit?: (e: Expense) => void;
-  spaceName?: string;
+  // Budget is a per-space setting synced to the DB and owned by the parent.
+  budget?: number | null;
+  onSetBudget?: (value: number | null) => void;
 }) {
   const now = new Date();
   const years = useMemo(() => availableYears(expenses), [expenses]);
@@ -157,7 +159,6 @@ export default function Dashboard({
   const [query, setQuery] = useState("");
   const [catFilter, setCatFilter] = useState("");
 
-  const { budget, setBudget } = useBudget(spaceName);
   const { format: formatCurrency } = useCurrency();
 
   const filtered = useMemo(() => {
@@ -272,8 +273,8 @@ export default function Dashboard({
       </div>
 
       {/* Budget ring (month view) */}
-      {view === "month" && !readOnly && (
-        <BudgetRing spent={total} budget={budget} periodLabel="Monthly" onSetBudget={setBudget} />
+      {view === "month" && !readOnly && onSetBudget && (
+        <BudgetRing spent={total} budget={budget} periodLabel="Monthly" onSetBudget={onSetBudget} />
       )}
 
       {/* Stat cards */}

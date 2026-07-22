@@ -22,6 +22,8 @@ export type QueueOp = CreateOp | UpdateOp | DeleteOp;
 const cacheKey = (space: string) => `spendly.cache.${space}`;
 const queueKey = (space: string) => `spendly.queue.${space}`;
 const syncedKey = (space: string) => `spendly.lastSync.${space}`;
+const budgetKey = (space: string) => `spendly.budget.${space}`;
+const budgetDirtyKey = (space: string) => `spendly.budgetDirty.${space}`;
 const lastSpaceKey = "spendly.lastSpace";
 
 // Remember the last-opened space (its name is not a secret) so a cold OFFLINE
@@ -91,6 +93,44 @@ export function getLastSync(space: string): number {
 
 function setLastSync(space: string, ts: number): void {
   write(syncedKey(space), ts);
+}
+
+/* ---------- budget (per-space setting, synced to the DB) ---------- */
+
+export function readBudget(space: string): number | null {
+  if (!space) return null;
+  const v = read<number | null>(budgetKey(space), null);
+  return typeof v === "number" && v > 0 ? v : null;
+}
+
+function writeBudgetLocal(space: string, value: number | null): void {
+  if (!space) return;
+  write(budgetKey(space), value && value > 0 ? value : null);
+}
+
+// A local edit: store it and mark it dirty so the next sync pushes it to the DB.
+export function setBudgetLocal(space: string, value: number | null): void {
+  writeBudgetLocal(space, value);
+  write(budgetDirtyKey(space), Date.now());
+}
+
+// The server's value is authoritative: store it and clear any dirty flag.
+export function adoptServerBudget(space: string, value: number | null): void {
+  writeBudgetLocal(space, value);
+  clearBudgetDirty(space);
+}
+
+export function isBudgetDirty(space: string): boolean {
+  if (!space) return false;
+  return read<number>(budgetDirtyKey(space), 0) > 0;
+}
+
+function clearBudgetDirty(space: string): void {
+  try {
+    localStorage.removeItem(budgetDirtyKey(space));
+  } catch {
+    /* ignore */
+  }
 }
 
 /* ---------- queue ---------- */
@@ -221,18 +261,51 @@ export async function flush(space: string): Promise<FlushResult> {
 }
 
 /**
- * Full sync: flush pending writes, and (only when the queue is fully drained)
- * pull the canonical list from the server into the cache.
+ * Full sync: push a pending budget change, flush queued expense writes, and
+ * (only when the queue is fully drained) pull the canonical list + budget from
+ * the server into the cache.
+ *
+ * `budget` in the result is `undefined` when nothing was pulled/pushed (so the
+ * caller leaves its state untouched), or `number | null` when the server value
+ * is now known.
  */
-export async function sync(
-  space: string
-): Promise<{ expenses: Expense[] | null; mapped: Record<string, string>; ok: boolean }> {
+export async function sync(space: string): Promise<{
+  expenses: Expense[] | null;
+  budget?: number | null;
+  mapped: Record<string, string>;
+  ok: boolean;
+}> {
+  // 1) Push a locally-edited budget first so it isn't clobbered by the pull.
+  let budget: number | null | undefined;
+  if (isBudgetDirty(space)) {
+    try {
+      const res = await api.setBudget(readBudget(space));
+      adoptServerBudget(space, res.budget);
+      budget = res.budget;
+    } catch {
+      /* still offline — keep it dirty for the next attempt */
+    }
+  }
+
+  // 2) Flush queued expense mutations.
   const { mapped, ok } = await flush(space);
+
   if (ok && readQueue(space).length === 0) {
     const { expenses } = await api.listExpenses();
     writeCache(space, expenses);
     setLastSync(space, Date.now());
-    return { expenses, mapped, ok: true };
+    // 3) Pull the budget too (unless we just pushed it) so other devices' edits
+    //    show up on a manual sync without a full reload.
+    if (budget === undefined && !isBudgetDirty(space)) {
+      try {
+        const res = await api.getBudget();
+        adoptServerBudget(space, res.budget);
+        budget = res.budget;
+      } catch {
+        /* ignore — budget stays as cached */
+      }
+    }
+    return { expenses, budget, mapped, ok: true };
   }
-  return { expenses: null, mapped, ok };
+  return { expenses: null, budget, mapped, ok };
 }

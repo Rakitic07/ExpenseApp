@@ -20,6 +20,7 @@ export async function GET() {
     select: {
       id: true,
       name: true,
+      monthlyBudget: true,
       expenses: { orderBy: { date: "desc" } },
     },
   });
@@ -33,6 +34,7 @@ export async function GET() {
   return NextResponse.json({
     authenticated: true,
     name: ledger.name,
+    budget: ledger.monthlyBudget ?? null,
     expenses: ledger.expenses,
   });
 }

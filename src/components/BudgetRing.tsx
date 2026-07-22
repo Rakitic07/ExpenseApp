@@ -33,7 +33,7 @@ export default function BudgetRing({
   const ringColor = over ? "#ff6b6b" : pct > 0.8 ? "#ffd43b" : "#38d9a9";
 
   return (
-    <div className="glass flex flex-col items-center gap-4 rounded-3xl p-5 sm:flex-row sm:items-center sm:gap-6">
+    <div className="glass flex flex-col items-center justify-center gap-4 rounded-3xl p-5 sm:flex-row sm:items-center sm:gap-6">
       <div className="relative shrink-0" style={{ width: size, height: size }}>
         <svg width={size} height={size} className="-rotate-90">
           <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth={stroke} />
@@ -64,7 +64,7 @@ export default function BudgetRing({
         </div>
       </div>
 
-      <div className="w-full flex-1 text-center sm:text-left">
+      <div className="text-center">
         <p className="text-xs uppercase tracking-wider text-white/45">
           {periodLabel} budget
         </p>
@@ -95,7 +95,7 @@ export default function BudgetRing({
           </form>
         ) : budget ? (
           <>
-            <div className="mt-1 flex items-baseline justify-center gap-2 sm:justify-start">
+            <div className="mt-1 flex items-baseline justify-center gap-2">
               <span className="text-2xl font-semibold">{format(spent)}</span>
               <span className="text-sm text-white/45">of {format(budget)}</span>
             </div>

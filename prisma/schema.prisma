@@ -15,6 +15,8 @@ model Ledger {
   nameKey   String    @unique
   // bcrypt hash of the passphrase. Never store the raw passphrase.
   passHash  String
+  // Optional recurring monthly budget goal, synced across devices.
+  monthlyBudget Float?
   createdAt DateTime  @default(now())
   expenses  Expense[]
 }

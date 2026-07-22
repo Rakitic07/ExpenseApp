@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Plus, LogOut, Sparkles, Wallet, ShieldCheck, PartyPopper } from "lucide-react";
+import { Plus, LogOut, Sparkles, Wallet, ShieldCheck, PartyPopper, Github } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Expense, ExpenseDraft } from "@/lib/types";
 import { CurrencyProvider, formatFor } from "@/lib/currency";
@@ -18,6 +18,10 @@ import {
   rememberSpace,
   getLastSpace,
   forgetSpace,
+  readBudget,
+  setBudgetLocal,
+  adoptServerBudget,
+  isBudgetDirty,
 } from "@/lib/offline";
 import Background from "./Background";
 import AuthCard from "./AuthCard";
@@ -32,12 +36,14 @@ export default function Spendly() {
   const [status, setStatus] = useState<Status>("loading");
   const [name, setName] = useState<string>("");
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [budget, setBudget] = useState<number | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Expense | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [pending, setPending] = useState(0);
   const [online, setOnline] = useState(true);
+  const [syncError, setSyncError] = useState(false);
 
   // Push queued writes to the DB, then pull the canonical list (when the queue
   // is fully drained). Takes the space explicitly so it can run before the
@@ -45,18 +51,25 @@ export default function Spendly() {
   const runSync = useCallback(async (space: string) => {
     if (!space) return;
     setSyncing(true);
+    let ok = true;
     try {
-      const { expenses: fresh, mapped } = await syncStore(space);
+      const { expenses: fresh, budget: freshBudget, mapped, ok: drained } =
+        await syncStore(space);
+      ok = drained;
       if (Object.keys(mapped).length) {
         setExpenses((prev) =>
           prev.map((e) => (mapped[e.id] ? { ...e, id: mapped[e.id] } : e))
         );
       }
       if (fresh) setExpenses(fresh);
+      // `undefined` means the server value wasn't touched this run — leave state.
+      if (freshBudget !== undefined) setBudget(freshBudget);
     } catch {
       /* offline or server error — keep the local cache and queued writes */
+      ok = false;
     } finally {
       setSyncing(false);
+      setSyncError(!ok); // green on success, red on failure
       setPending(pendingCount(space));
     }
   }, []);
@@ -90,6 +103,7 @@ export default function Spendly() {
       rememberSpace(space);
       const cached = readCache(space);
       if (cached.length) setExpenses(cached);
+      setBudget(readBudget(space)); // instant; runSync then pulls/pushes the DB value
       setPending(pendingCount(space));
       void runSync(space);
     },
@@ -102,19 +116,42 @@ export default function Spendly() {
         // Single startup call: auth state + expenses in one round trip.
         const boot = await api.bootstrap();
         if (boot.authenticated && boot.name) {
-          setName(boot.name);
+          const space = boot.name;
+          setName(space);
           setStatus("authed");
-          rememberSpace(boot.name);
-          const cached = readCache(boot.name);
+          rememberSpace(space);
+          const cached = readCache(space);
           if (cached.length) setExpenses(cached);
-          const pend = pendingCount(boot.name);
+          const pend = pendingCount(space);
           setPending(pend);
-          if (pend > 0) {
+
+          // Reconcile the budget. A local edit not yet pushed wins (and gets
+          // flushed below); otherwise the server value is authoritative. If the
+          // server has no budget but this device has an old local-only one,
+          // migrate it up so it starts syncing.
+          let mustSyncBudget = false;
+          if (isBudgetDirty(space)) {
+            setBudget(readBudget(space));
+            mustSyncBudget = true;
+          } else {
+            const serverBudget = boot.budget ?? null;
+            const local = readBudget(space);
+            if (serverBudget == null && local != null) {
+              setBudget(local);
+              setBudgetLocal(space, local); // marks dirty → pushed by runSync
+              mustSyncBudget = true;
+            } else {
+              adoptServerBudget(space, serverBudget);
+              setBudget(serverBudget);
+            }
+          }
+
+          if (pend > 0 || mustSyncBudget) {
             // Unsynced local writes exist — flush them, then refresh.
-            void runSync(boot.name);
+            void runSync(space);
           } else if (boot.expenses) {
             setExpenses(boot.expenses);
-            writeCache(boot.name, boot.expenses);
+            writeCache(space, boot.expenses);
           }
         } else {
           setStatus("guest");
@@ -128,6 +165,7 @@ export default function Spendly() {
           setName(last);
           setStatus("authed");
           setExpenses(readCache(last));
+          setBudget(readBudget(last));
           setPending(pendingCount(last));
         } else {
           setStatus("guest");
@@ -175,10 +213,22 @@ export default function Spendly() {
     await api.logout();
     forgetSpace();
     setExpenses([]);
+    setBudget(null);
     setName("");
     setStatus("guest");
     setPending(0);
   }
+
+  // The monthly budget is a per-space DB setting: update locally for an instant
+  // response, then push to the server so every device sees the same goal.
+  const handleSetBudget = useCallback(
+    (value: number | null) => {
+      setBudget(value);
+      setBudgetLocal(name, value);
+      void runSync(name);
+    },
+    [name, runSync]
+  );
 
   // Writes are applied locally first (instant + offline-friendly) and queued;
   // runSync then flushes to the DB — a no-op that stays queued if offline.
@@ -211,7 +261,12 @@ export default function Spendly() {
     <main className="relative min-h-screen">
       <Background />
 
-      <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
+      {/*
+       * Top padding respects the iOS safe-area inset so the header isn't hidden
+       * under the notch / translucent status bar when installed as a PWA. On
+       * Android and desktop env(safe-area-inset-top) is 0, so nothing changes.
+       */}
+      <div className="mx-auto w-full max-w-6xl px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-[calc(env(safe-area-inset-top)+1.5rem)] sm:px-6 sm:pb-[calc(env(safe-area-inset-bottom)+2.5rem)] sm:pt-[calc(env(safe-area-inset-top)+2.5rem)]">
         {/* Header */}
         <header className="mb-8 flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
@@ -232,6 +287,7 @@ export default function Spendly() {
                 online={online}
                 syncing={syncing}
                 pending={pending}
+                error={syncError}
                 onSync={() => void runSync(name)}
               />
               <CurrencySelect />
@@ -261,7 +317,8 @@ export default function Spendly() {
         {status === "authed" && (
           <Dashboard
             expenses={expenses}
-            spaceName={name}
+            budget={budget}
+            onSetBudget={handleSetBudget}
             onEdit={(e) => {
               setEditing(e);
               setFormOpen(true);
@@ -334,8 +391,19 @@ export default function Spendly() {
         )}
       </AnimatePresence>
 
-      <footer className="pb-8 pt-4 text-center text-xs text-white/35">
-        Spendly-Plus · built with Next.js · deploy-ready for Vercel
+      <footer className="flex flex-col items-center gap-2 pb-8 pt-4 text-center text-xs text-white/35">
+        <span>Spendly-Plus · built with Next.js · deploy-ready for Vercel</span>
+        <a
+          href="https://github.com/Rakitic07/ExpenseApp"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="View source & creator on GitHub"
+          title="Made by Rakitic07 · View on GitHub"
+          className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-white/50 transition hover:bg-white/10 hover:text-white/80"
+        >
+          <Github className="h-4 w-4" />
+          <span>Rakitic07</span>
+        </a>
       </footer>
     </main>
     </CurrencyProvider>

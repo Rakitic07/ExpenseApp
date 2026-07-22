@@ -17,6 +17,7 @@ model Ledger {
   name      String
   nameKey   String    @unique
   passHash  String
+  monthlyBudget Float?
   createdAt DateTime  @default(now())
   expenses  Expense[]
 }

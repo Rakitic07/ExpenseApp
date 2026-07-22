@@ -14,10 +14,29 @@ export const api = {
     return handle<{ authenticated: boolean; name?: string }>(res);
   },
 
-  // Auth state + expenses in a single round trip (used on app startup).
+  // Auth state + budget + expenses in a single round trip (used on app startup).
   async bootstrap() {
     const res = await fetch("/api/bootstrap", { cache: "no-store" });
-    return handle<{ authenticated: boolean; name?: string; expenses?: Expense[] }>(res);
+    return handle<{
+      authenticated: boolean;
+      name?: string;
+      budget?: number | null;
+      expenses?: Expense[];
+    }>(res);
+  },
+
+  async getBudget() {
+    const res = await fetch("/api/budget", { cache: "no-store" });
+    return handle<{ budget: number | null }>(res);
+  },
+
+  async setBudget(budget: number | null) {
+    const res = await fetch("/api/budget", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ budget }),
+    });
+    return handle<{ budget: number | null }>(res);
   },
 
   async register(name: string, passphrase: string) {
