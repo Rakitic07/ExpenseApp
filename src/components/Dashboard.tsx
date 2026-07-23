@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   TrendingUp,
   CalendarDays,
@@ -16,6 +16,8 @@ import {
   Repeat,
   ArrowUp,
   ArrowDown,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import type { Expense } from "@/lib/types";
 import {
@@ -254,6 +256,28 @@ export default function Dashboard({
     });
   }, [filtered, query, catFilter]);
 
+  // Paginate the transaction list: 5 per page with a sliding transition.
+  const PAGE_SIZE = 5;
+  const [page, setPage] = useState(0);
+  const [dir, setDir] = useState(0); // slide direction: 1 = next, -1 = prev
+  const totalPages = Math.max(1, Math.ceil(listExpenses.length / PAGE_SIZE));
+  const clampedPage = Math.min(page, totalPages - 1);
+  const pageItems = listExpenses.slice(
+    clampedPage * PAGE_SIZE,
+    clampedPage * PAGE_SIZE + PAGE_SIZE
+  );
+
+  // Jump back to page 1 whenever the underlying set (view/filters) changes.
+  useEffect(() => {
+    setPage(0);
+    setDir(0);
+  }, [view, year, month, day, query, catFilter]);
+
+  function goToPage(delta: number) {
+    setDir(delta);
+    setPage((p) => Math.min(Math.max(0, p + delta), totalPages - 1));
+  }
+
   const periodLabel =
     view === "month"
       ? `${MONTH_LABELS[month]} ${year}`
@@ -475,7 +499,52 @@ export default function Dashboard({
             </select>
           </div>
         </div>
-        <ExpenseList expenses={listExpenses} onEdit={onEdit} readOnly={readOnly} />
+        {/* Paged list: the whole page slides out and the next one slides in. */}
+        <div className="relative overflow-hidden">
+          <AnimatePresence mode="wait" custom={dir} initial={false}>
+            <motion.div
+              key={clampedPage}
+              custom={dir}
+              variants={{
+                enter: (d: number) => ({ x: d >= 0 ? 48 : -48, opacity: 0 }),
+                center: { x: 0, opacity: 1 },
+                exit: (d: number) => ({ x: d >= 0 ? -48 : 48, opacity: 0 }),
+              }}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ duration: 0.22, ease: "easeOut" }}
+            >
+              <ExpenseList expenses={pageItems} onEdit={onEdit} readOnly={readOnly} />
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        {totalPages > 1 && (
+          <div className="mt-4 flex items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => goToPage(-1)}
+              disabled={clampedPage === 0}
+              className="glass-btn px-3 py-2 disabled:opacity-40"
+              aria-label="Previous page"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="min-w-[6rem] text-center text-sm text-white/60">
+              Page {clampedPage + 1} of {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => goToPage(1)}
+              disabled={clampedPage >= totalPages - 1}
+              className="glass-btn px-3 py-2 disabled:opacity-40"
+              aria-label="Next page"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
