@@ -184,9 +184,18 @@ export default function Dashboard({
   }, [expenses, view, year, month]);
   const delta = view === "all" ? null : pctChange(total, prevTotal);
 
+  // Day context, shared by the budget-pacing card and the monthly average so
+  // the two never disagree.
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
+  // For an in-progress month, average over the days *so far* (not all 30/31)
+  // so "avg / day" reflects the real pace instead of being diluted.
+  const daysElapsed = isCurrentMonth ? now.getDate() : daysInMonth;
+  const daysLeft = isCurrentMonth ? Math.max(0, daysInMonth - now.getDate()) : 0;
+
   const periodDivisor =
     view === "month"
-      ? new Date(year, month + 1, 0).getDate()
+      ? daysElapsed
       : view === "year"
         ? 12
         : Math.max(1, yearlyTotals(expenses).length);
@@ -274,7 +283,15 @@ export default function Dashboard({
 
       {/* Budget ring (month view) */}
       {view === "month" && !readOnly && onSetBudget && (
-        <BudgetRing spent={total} budget={budget} periodLabel="Monthly" onSetBudget={onSetBudget} />
+        <BudgetRing
+          spent={total}
+          budget={budget}
+          periodLabel="Monthly"
+          onSetBudget={onSetBudget}
+          daysInMonth={daysInMonth}
+          daysElapsed={daysElapsed}
+          daysLeft={daysLeft}
+        />
       )}
 
       {/* Stat cards */}

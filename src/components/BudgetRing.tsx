@@ -5,16 +5,47 @@ import { motion } from "framer-motion";
 import { Target, Check, Pencil } from "lucide-react";
 import { useCurrency } from "@/lib/currency";
 
+function Detail({
+  label,
+  value,
+  tone = "ok",
+  hint,
+}: {
+  label: string;
+  value: string;
+  tone?: "ok" | "warn";
+  hint?: string;
+}) {
+  return (
+    <div
+      title={hint}
+      className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-center"
+    >
+      <p className="text-[10px] uppercase tracking-wide text-white/45">{label}</p>
+      <p className={`text-sm font-semibold ${tone === "warn" ? "text-amber-300" : "text-white"}`}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
 export default function BudgetRing({
   spent,
   budget,
   periodLabel,
   onSetBudget,
+  daysInMonth,
+  daysElapsed,
+  daysLeft,
 }: {
   spent: number;
   budget: number | null;
   periodLabel: string;
   onSetBudget: (value: number | null) => void;
+  // Optional pacing context (month view). When present, extra stats are shown.
+  daysInMonth?: number;
+  daysElapsed?: number;
+  daysLeft?: number;
 }) {
   const { format } = useCurrency();
   const [editing, setEditing] = useState(false);
@@ -23,6 +54,13 @@ export default function BudgetRing({
   const pct = budget && budget > 0 ? Math.min(spent / budget, 1) : 0;
   const over = budget != null && spent > budget;
   const remaining = budget != null ? budget - spent : 0;
+
+  // Pacing maths (only meaningful when we have the month's day context).
+  const hasPace = budget != null && budget > 0 && !!daysInMonth;
+  const perDayBudget = hasPace ? budget! / daysInMonth! : 0;
+  const spentPerDay = hasPace && daysElapsed && daysElapsed > 0 ? spent / daysElapsed : 0;
+  const projected = spentPerDay * (daysInMonth ?? 0);
+  const safePerDay = hasPace && daysLeft && daysLeft > 0 ? Math.max(0, remaining / daysLeft) : null;
 
   const size = 132;
   const stroke = 12;
@@ -104,12 +142,37 @@ export default function BudgetRing({
                 ? `${format(Math.abs(remaining))} over budget`
                 : `${format(remaining)} left to spend`}
             </p>
+
+            {hasPace && (
+              <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
+                <Detail
+                  label="Daily budget"
+                  value={format(perDayBudget)}
+                  hint="Your monthly budget split evenly across the days of the month — the amount you can spend each day to stay on target."
+                />
+                {safePerDay != null ? (
+                  <Detail
+                    label="Safe to spend / day"
+                    value={format(safePerDay)}
+                    hint={`What you can spend on each of the ${daysLeft} remaining day(s) and still finish within budget (money left ÷ days left).`}
+                  />
+                ) : (
+                  <Detail
+                    label="Projected"
+                    value={format(projected)}
+                    tone={projected > (budget ?? 0) ? "warn" : "ok"}
+                    hint="Estimated total for the month if you keep spending at your current daily pace."
+                  />
+                )}
+              </div>
+            )}
+
             <button
               onClick={() => {
                 setDraft(String(budget));
                 setEditing(true);
               }}
-              className="mt-2 inline-flex items-center gap-1.5 text-xs text-white/50 transition hover:text-white/80"
+              className="mt-3 inline-flex items-center gap-1.5 text-xs text-white/50 transition hover:text-white/80"
             >
               <Pencil className="h-3 w-3" /> Edit budget
             </button>
