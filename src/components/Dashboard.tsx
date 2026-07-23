@@ -499,9 +499,13 @@ export default function Dashboard({
             </select>
           </div>
         </div>
-        {/* Paged list: the whole page slides out and the next one slides in. */}
+        {/* Paged list: the whole page slides out and the next one slides in.
+            `popLayout` keeps the incoming page in normal flow (and pops the
+            outgoing one to absolute) so the list height never collapses to zero
+            mid-transition — that collapse was yanking the whole page up to the
+            top and pushing the pager arrows out of view. */}
         <div className="relative overflow-hidden">
-          <AnimatePresence mode="wait" custom={dir} initial={false}>
+          <AnimatePresence mode="popLayout" custom={dir} initial={false}>
             <motion.div
               key={clampedPage}
               custom={dir}

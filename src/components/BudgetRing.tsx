@@ -87,7 +87,6 @@ export default function BudgetRing({
             initial={{ strokeDashoffset: circ }}
             animate={{ strokeDashoffset: circ - dash }}
             transition={{ duration: 0.8, ease: "easeOut" }}
-            style={{ filter: `drop-shadow(0 0 8px ${ringColor}88)` }}
           />
         </svg>
         <div className="absolute inset-0 grid place-items-center text-center">
