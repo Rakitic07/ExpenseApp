@@ -37,6 +37,7 @@ import { useCurrency } from "@/lib/currency";
 import dynamic from "next/dynamic";
 import ExpenseList from "./ExpenseList";
 import BudgetRing from "./BudgetRing";
+import DatePicker from "./DatePicker";
 
 // Recharts is heavy, so the charts are code-split out of the initial bundle and
 // loaded on demand. This keeps first load (especially on phones) fast; a light
@@ -57,7 +58,19 @@ const Bars = dynamic(() => import("./charts/Bars"), {
   loading: ChartFallback,
 });
 
-type View = "month" | "year" | "all";
+type View = "day" | "month" | "year" | "all";
+
+function toDayValue(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
+}
+
+function sameCalendarDay(iso: string, dayStr: string): boolean {
+  const d = new Date(iso);
+  const [y, m, day] = dayStr.split("-").map(Number);
+  return d.getFullYear() === y && d.getMonth() === m - 1 && d.getDate() === day;
+}
 
 function ChartCard({
   title,
@@ -156,6 +169,7 @@ export default function Dashboard({
   const [view, setView] = useState<View>("month");
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
+  const [day, setDay] = useState(toDayValue(now));
   const [query, setQuery] = useState("");
   const [catFilter, setCatFilter] = useState("");
 
@@ -164,8 +178,9 @@ export default function Dashboard({
   const filtered = useMemo(() => {
     if (view === "all") return expenses;
     if (view === "year") return expenses.filter((e) => inYear(e, year));
+    if (view === "day") return expenses.filter((e) => sameCalendarDay(e.date, day));
     return expenses.filter((e) => inMonth(e, year, month));
-  }, [expenses, view, year, month]);
+  }, [expenses, view, year, month, day]);
 
   const total = sum(filtered);
   const cats = useMemo(() => byCategory(filtered), [filtered]);
@@ -182,7 +197,7 @@ export default function Dashboard({
     if (view === "year") return sum(expenses.filter((e) => inYear(e, year - 1)));
     return 0;
   }, [expenses, view, year, month]);
-  const delta = view === "all" ? null : pctChange(total, prevTotal);
+  const delta = view === "all" || view === "day" ? null : pctChange(total, prevTotal);
 
   // Day context, shared by the budget-pacing card and the monthly average so
   // the two never disagree.
@@ -198,8 +213,17 @@ export default function Dashboard({
       ? daysElapsed
       : view === "year"
         ? 12
-        : Math.max(1, yearlyTotals(expenses).length);
-  const avgLabel = view === "month" ? "avg / day" : view === "year" ? "avg / month" : "avg / year";
+        : view === "day"
+          ? Math.max(1, filtered.length)
+          : Math.max(1, yearlyTotals(expenses).length);
+  const avgLabel =
+    view === "month"
+      ? "avg / day"
+      : view === "year"
+        ? "avg / month"
+        : view === "day"
+          ? "avg / txn"
+          : "avg / year";
 
   const trendData =
     view === "month"
@@ -231,14 +255,25 @@ export default function Dashboard({
   }, [filtered, query, catFilter]);
 
   const periodLabel =
-    view === "month" ? `${MONTH_LABELS[month]} ${year}` : view === "year" ? String(year) : "All time";
+    view === "month"
+      ? `${MONTH_LABELS[month]} ${year}`
+      : view === "year"
+        ? String(year)
+        : view === "day"
+          ? new Date(day).toLocaleDateString("en-IN", {
+              weekday: "short",
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            })
+          : "All time";
 
   return (
     <div className="space-y-6">
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex gap-1 rounded-2xl border border-white/10 bg-white/5 p-1">
-          {(["month", "year", "all"] as View[]).map((v) => (
+          {(["day", "month", "year", "all"] as View[]).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
@@ -252,7 +287,10 @@ export default function Dashboard({
           ))}
         </div>
 
-        {view !== "all" && (
+        {/* Pick a specific day from the calendar. */}
+        {view === "day" && <DatePicker value={day} onChange={setDay} />}
+
+        {(view === "month" || view === "year") && (
           <select
             value={year}
             onChange={(e) => setYear(Number(e.target.value))}
@@ -375,25 +413,30 @@ export default function Dashboard({
           <CategoryDonut data={cats} />
         </ChartCard>
 
-        <ChartCard
-          title={
-            view === "month"
-              ? "Daily spending"
-              : view === "year"
-                ? "Monthly trend"
-                : "Yearly totals"
-          }
-          icon={<BarChart3 className="h-4 w-4" />}
-        >
-          {view === "year" ? <TrendArea data={trendData} /> : <Bars data={barData} />}
-        </ChartCard>
+        {/* Trend / bar charts aren't meaningful for a single day. */}
+        {view !== "day" && (
+          <ChartCard
+            title={
+              view === "month"
+                ? "Daily spending"
+                : view === "year"
+                  ? "Monthly trend"
+                  : "Yearly totals"
+            }
+            icon={<BarChart3 className="h-4 w-4" />}
+          >
+            {view === "year" ? <TrendArea data={trendData} /> : <Bars data={barData} />}
+          </ChartCard>
+        )}
 
-        <ChartCard
-          title={view === "month" ? "Trend across the month" : "Trend over time"}
-          icon={<TrendingUp className="h-4 w-4" />}
-        >
-          <TrendArea data={trendData} />
-        </ChartCard>
+        {view !== "day" && (
+          <ChartCard
+            title={view === "month" ? "Trend across the month" : "Trend over time"}
+            icon={<TrendingUp className="h-4 w-4" />}
+          >
+            <TrendArea data={trendData} />
+          </ChartCard>
+        )}
 
         <ChartCard title="Who paid" icon={<Users className="h-4 w-4" />}>
           <CategoryDonut data={payers} />
