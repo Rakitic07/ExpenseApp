@@ -161,6 +161,45 @@ body {
   }
 }
 
+/*
+ * iOS phones only: the header's control cluster (sync / currency / add / logout)
+ * is a touch too wide on a narrow iPhone, squeezing the space name into "…".
+ * The `.ios-compact` class is added by JS only on iOS, and these rules shrink
+ * the buttons/icons just enough to give the name room. Android/desktop never
+ * get the class, so they're unaffected. Scoped to phone widths so iPads in a
+ * wide layout keep the full-size controls.
+ */
+@media (max-width: 640px) {
+  .ios-compact {
+    gap: 0.375rem;
+  }
+  .ios-compact .glass-btn,
+  .ios-compact .glass-btn-primary {
+    padding: 0.4rem 0.55rem;
+    border-radius: 0.9rem;
+  }
+  .ios-compact svg {
+    width: 0.8125rem;
+    height: 0.8125rem;
+  }
+  .ios-compact select {
+    width: 2.75rem;
+    font-size: 0.72rem;
+  }
+}
+
+/*
+ * Phones: the category picker is long, so by default we show only the top
+ * categories + "Other" and hide the rest behind a "More categories" toggle.
+ * `.cats-collapsed` is set when collapsed; the extra pills carry `.cat-extra`.
+ * This only applies at phone widths — on the web app every category shows.
+ */
+@media (max-width: 640px) {
+  .cats-collapsed .cat-extra {
+    display: none;
+  }
+}
+
 /* Respect users who prefer less motion: kill long/looping animations. */
 @media (prefers-reduced-motion: reduce) {
   *,

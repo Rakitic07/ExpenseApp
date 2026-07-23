@@ -2,12 +2,26 @@
 
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { X, Check, Trash2 } from "lucide-react";
-import { CATEGORIES } from "@/lib/categories";
+import { X, Check, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { CATEGORIES, CATEGORY_NAMES } from "@/lib/categories";
+
+// On phones we show only the first TOP_COUNT categories + "Other" by default;
+// the rest live behind a "More categories" toggle. The web app shows them all.
+const TOP_COUNT = 10;
+
+// True for categories hidden on phones until expanded (everything after the top
+// slice, except the always-visible "Other").
+function isExtraCategory(name: string): boolean {
+  const idx = CATEGORIES.findIndex((c) => c.name === name);
+  return idx >= TOP_COUNT && name !== "Other";
+}
 import type { Expense, ExpenseDraft } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useCurrency } from "@/lib/currency";
 import DatePicker from "./DatePicker";
+
+// Distinct accent per quick-suggestion chip so a picked one lights up in colour.
+const SUGGESTION_COLORS = ["#7c8cff", "#ff6bd0", "#38d9a9", "#ffd43b"];
 
 function toDateInput(iso?: string): string {
   const d = iso ? new Date(iso) : new Date();
@@ -34,6 +48,10 @@ export default function ExpenseForm({
   const { currency } = useCurrency();
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState(CATEGORIES[0].name);
+  // Free-text label shown only when the "Other" category is picked.
+  const [customCategory, setCustomCategory] = useState("");
+  // Phones: whether the extra categories are revealed.
+  const [catsExpanded, setCatsExpanded] = useState(false);
   const [amount, setAmount] = useState("");
   const [paidBy, setPaidBy] = useState("");
   const [date, setDate] = useState(toDateInput());
@@ -45,7 +63,14 @@ export default function ExpenseForm({
     if (!open) return;
     if (editing) {
       setTitle(editing.title);
-      setCategory(editing.category);
+      // A saved category that isn't in our list was entered via "Other" —
+      // reselect "Other" and restore its custom label.
+      const known = CATEGORY_NAMES.includes(editing.category);
+      const cat = known ? editing.category : "Other";
+      setCategory(cat);
+      setCustomCategory(known ? "" : editing.category);
+      // Reveal the extras if the editing category lives among them.
+      setCatsExpanded(isExtraCategory(cat));
       setAmount(String(editing.amount));
       setPaidBy(editing.paidBy);
       setDate(toDateInput(editing.date));
@@ -53,6 +78,8 @@ export default function ExpenseForm({
     } else {
       setTitle("");
       setCategory(CATEGORIES[0].name);
+      setCustomCategory("");
+      setCatsExpanded(false);
       setAmount("");
       setPaidBy("");
       setDate(toDateInput());
@@ -73,12 +100,15 @@ export default function ExpenseForm({
       setError("Please pick a category.");
       return;
     }
+    // When "Other" is chosen, use the typed label (if any) as the real category.
+    const finalCategory =
+      category === "Other" && customCategory.trim() ? customCategory.trim() : category;
     setBusy(true);
     try {
       await onSave(
         {
           title: title.trim(),
-          category,
+          category: finalCategory,
           amount: amountNum,
           paidBy: paidBy.trim(),
           date,
@@ -142,16 +172,33 @@ export default function ExpenseForm({
                 />
                 {!editing && recentTitles.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {recentTitles.slice(0, 6).map((t) => (
-                      <button
-                        type="button"
-                        key={t}
-                        onClick={() => setTitle(t)}
-                        className="pill text-white/70 transition hover:text-white"
-                      >
-                        {t}
-                      </button>
-                    ))}
+                    {recentTitles.slice(0, 4).map((t, i) => {
+                      const color = SUGGESTION_COLORS[i % SUGGESTION_COLORS.length];
+                      const active = title.trim() === t;
+                      return (
+                        <button
+                          type="button"
+                          key={t}
+                          onClick={() => setTitle(t)}
+                          className={cn(
+                            "pill select-none transition",
+                            active ? "text-white" : "text-white/70 hover:text-white"
+                          )}
+                          // Picked suggestion lights up in its own colour.
+                          style={
+                            active
+                              ? {
+                                  background: color + "40",
+                                  borderColor: color,
+                                  boxShadow: `0 0 0 2px ${color}`,
+                                }
+                              : undefined
+                          }
+                        >
+                          {t}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -160,8 +207,13 @@ export default function ExpenseForm({
                 <label className="mb-1.5 block text-xs font-medium text-white/60">
                   Category
                 </label>
-                <div className="flex flex-wrap gap-2">
-                  {CATEGORIES.map((c) => (
+                <div
+                  className={cn(
+                    "flex flex-wrap gap-2",
+                    !catsExpanded && "cats-collapsed"
+                  )}
+                >
+                  {CATEGORIES.map((c, i) => (
                     <button
                       type="button"
                       key={c.name}
@@ -173,6 +225,9 @@ export default function ExpenseForm({
                       title="Tap again to clear"
                       className={cn(
                         "pill select-none transition",
+                        // Hidden on phones (until expanded) for everything past
+                        // the top slice, except "Other".
+                        i >= TOP_COUNT && c.name !== "Other" && "cat-extra",
                         category === c.name
                           ? "ring-2 ring-white/60"
                           : "opacity-70 hover:opacity-100"
@@ -188,6 +243,35 @@ export default function ExpenseForm({
                     </button>
                   ))}
                 </div>
+
+                {/* Expand/collapse the extra categories — phones only. */}
+                <button
+                  type="button"
+                  onClick={() => setCatsExpanded((v) => !v)}
+                  className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-white/60 transition hover:text-white sm:hidden"
+                >
+                  {catsExpanded ? (
+                    <>
+                      Show fewer categories <ChevronUp className="h-3.5 w-3.5" />
+                    </>
+                  ) : (
+                    <>
+                      More categories <ChevronDown className="h-3.5 w-3.5" />
+                    </>
+                  )}
+                </button>
+
+                {/* Extra field appears only for "Other"; it disappears the moment
+                    any other category is selected. */}
+                {category === "Other" && (
+                  <input
+                    className="glass-input mt-2"
+                    placeholder="Specify category (e.g. Parking, Repairs)"
+                    value={customCategory}
+                    onChange={(e) => setCustomCategory(e.target.value)}
+                    autoFocus
+                  />
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">

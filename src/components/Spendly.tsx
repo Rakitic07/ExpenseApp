@@ -44,6 +44,7 @@ export default function Spendly() {
   const [pending, setPending] = useState(0);
   const [online, setOnline] = useState(true);
   const [syncError, setSyncError] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
 
   // Push queued writes to the DB, then pull the canonical list (when the queue
   // is fully drained). Takes the space explicitly so it can run before the
@@ -179,6 +180,17 @@ export default function Spendly() {
     if (status === "authed" && name) writeCache(name, expenses);
   }, [expenses, status, name]);
 
+  // Detect iOS once so we can slightly shrink the header controls there (they
+  // otherwise crowd out the space name on a narrow iPhone). iPadOS 13+ reports
+  // as "MacIntel" with touch points, so include that case.
+  useEffect(() => {
+    const ua = navigator.userAgent || "";
+    const iOS =
+      /iPad|iPhone|iPod/.test(ua) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    setIsIOS(iOS);
+  }, []);
+
   // Auto-sync when connectivity returns; track online/offline for the badge.
   useEffect(() => {
     if (typeof navigator !== "undefined") setOnline(navigator.onLine);
@@ -269,12 +281,17 @@ export default function Spendly() {
       <div className="mx-auto w-full max-w-6xl px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-[calc(env(safe-area-inset-top)+1.5rem)] sm:px-6 sm:pb-[calc(env(safe-area-inset-bottom)+2.5rem)] sm:pt-[calc(env(safe-area-inset-top)+2.5rem)]">
         {/* Header */}
         <header className="mb-8 flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3">
             <div className="grid h-9 w-9 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-[#7c8cff] to-[#ff6bd0] shadow-glow sm:h-11 sm:w-11">
               <Wallet className="h-4 w-4 sm:h-5 sm:w-5" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-base font-semibold leading-tight sm:text-lg">Spendly-Plus</h1>
+              {/* `truncate` keeps the name on one line — otherwise "Spendly-Plus"
+                  breaks at the hyphen on narrow iPhones and squeezes the space
+                  name into an ellipsis. */}
+              <h1 className="truncate text-sm font-semibold leading-tight sm:text-lg">
+                Spendly-Plus
+              </h1>
               <p className="truncate text-xs text-white/50">
                 {status === "authed" ? `Space · ${name}` : "Liquid-glass expense tracker"}
               </p>
@@ -282,7 +299,11 @@ export default function Spendly() {
           </div>
 
           {status === "authed" && (
-            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            <div
+              className={`flex shrink-0 items-center gap-1.5 sm:gap-2 ${
+                isIOS ? "ios-compact" : ""
+              }`}
+            >
               <SyncButton
                 online={online}
                 syncing={syncing}

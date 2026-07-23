@@ -26,6 +26,10 @@ export const CATEGORIES: CategoryDef[] = [
   { name: "SIP", color: "#f76707", emoji: "🔁" },
   { name: "Insurance", color: "#1098ad", emoji: "🛡️" },
   { name: "Crypto", color: "#f59f00", emoji: "🪙" },
+  { name: "Maid", color: "#ffa8a8", emoji: "🧹" },
+  { name: "Worship", color: "#b197fc", emoji: "🙏" },
+  { name: "Apartment", color: "#74c0fc", emoji: "🏢" },
+  { name: "Donation", color: "#f06595", emoji: "💝" },
   { name: "Other", color: "#adb5bd", emoji: "✨" },
 ];
 
