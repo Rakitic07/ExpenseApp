@@ -8,13 +8,18 @@ export const dynamic = "force-dynamic";
 
 // The admin dashboard is gated by two shared secrets that only the app owner
 // knows: the AUTH_SECRET (verified against the server's env) and the
-// DATABASE_URL (used to connect). Nothing here is persisted — the secrets are
-// received once over HTTPS, checked, used for a single read-only query, and
-// discarded when the request ends.
+// DATABASE_URL (used to connect). Details are fetched section-by-section, on
+// demand, so the initial unlock stays fast and heavy aggregates only run when
+// the owner actually opens that tab.
+
+const PAGE_SIZE = 5;
 
 const bodySchema = z.object({
   databaseUrl: z.string().min(1, "DATABASE_URL is required"),
   authSecret: z.string().min(1, "AUTH_SECRET is required"),
+  section: z.enum(["overview", "spaces", "categories", "payers", "activity"]),
+  page: z.number().int().min(0).max(100_000).optional(),
+  bucket: z.enum(["day", "week", "month", "year"]).optional(),
 });
 
 // Length-independent, timing-safe comparison (hash both to a fixed size first,
@@ -25,60 +30,54 @@ function secretsMatch(a: string, b: string): boolean {
   return timingSafeEqual(ha, hb);
 }
 
-function unauthorized() {
-  // Generic message — never reveal which of the two secrets was wrong.
-  return NextResponse.json(
-    { error: "Invalid credentials." },
-    { status: 401, headers: { "Cache-Control": "no-store" } }
-  );
+function json(body: unknown, status = 200) {
+  return NextResponse.json(body, {
+    status,
+    headers: { "Cache-Control": "no-store" },
+  });
 }
+
+const unauthorized = () => json({ error: "Invalid credentials." }, 401);
+
+// Fixed, allow-listed bucket config — these strings are inlined into SQL, so
+// they must never come from free-form user input (they don't: zod enum above).
+const BUCKET = {
+  day: { unit: "day", windows: 14, fmt: "DD Mon" },
+  week: { unit: "week", windows: 12, fmt: "DD Mon" },
+  month: { unit: "month", windows: 12, fmt: "Mon YY" },
+  year: { unit: "year", windows: 5, fmt: "YYYY" },
+} as const;
 
 export async function POST(req: Request) {
   const serverSecret = process.env.AUTH_SECRET;
   if (!serverSecret) {
-    return NextResponse.json(
-      { error: "Server is not configured for admin access." },
-      { status: 500, headers: { "Cache-Control": "no-store" } }
-    );
+    return json({ error: "Server is not configured for admin access." }, 500);
   }
 
   let raw: unknown;
   try {
     raw = await req.json();
   } catch {
-    return NextResponse.json(
-      { error: "Invalid request body." },
-      { status: 400, headers: { "Cache-Control": "no-store" } }
-    );
+    return json({ error: "Invalid request body." }, 400);
   }
 
   const parsed = bodySchema.safeParse(raw);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? "Invalid input." },
-      { status: 400, headers: { "Cache-Control": "no-store" } }
-    );
+    return json({ error: parsed.error.issues[0]?.message ?? "Invalid input." }, 400);
   }
 
-  const { databaseUrl, authSecret } = parsed.data;
+  const { databaseUrl, authSecret, section } = parsed.data;
+  const page = parsed.data.page ?? 0;
+  const bucket = parsed.data.bucket ?? "week";
 
-  // Gate: the AUTH_SECRET must match the server's. This is the real
-  // authentication — a 64+ char random value is infeasible to brute force.
-  if (!secretsMatch(authSecret, serverSecret)) {
-    return unauthorized();
-  }
+  if (!secretsMatch(authSecret, serverSecret)) return unauthorized();
 
-  // Only allow Postgres connection strings (no file://, http://, etc.).
   if (!/^postgres(ql)?:\/\//i.test(databaseUrl.trim())) {
-    return NextResponse.json(
-      { error: "DATABASE_URL must be a valid PostgreSQL connection string." },
-      { status: 400, headers: { "Cache-Control": "no-store" } }
-    );
+    return json({ error: "DATABASE_URL must be a valid PostgreSQL connection string." }, 400);
   }
 
   // Defence in depth: if the server has its own DATABASE_URL, require the
-  // supplied one to match it so this endpoint can't be pointed at arbitrary
-  // hosts (SSRF) even by someone who somehow learned the AUTH_SECRET.
+  // supplied one to match so this endpoint can't be pointed at arbitrary hosts.
   const envDbUrl = process.env.DATABASE_URL;
   if (envDbUrl && !secretsMatch(databaseUrl.trim(), envDbUrl.trim())) {
     return unauthorized();
@@ -93,103 +92,181 @@ export async function POST(req: Request) {
   });
 
   try {
-    const [spacesRes, totalsRes, catRes, payerRes, monthlyRes] = await Promise.all([
-      pool.query(
-        `SELECT l.id,
-                l.name,
-                l."monthlyBudget" AS budget,
-                l."createdAt"     AS created,
-                COUNT(e.id)::int  AS expense_count,
-                COALESCE(SUM(e.amount), 0)::float AS total,
-                MIN(e.date)       AS first_date,
-                MAX(e.date)       AS last_date
-           FROM "Ledger" l
-           LEFT JOIN "Expense" e ON e."ledgerId" = l.id
-          GROUP BY l.id
-          ORDER BY l."createdAt" ASC`
-      ),
-      pool.query(
-        `SELECT COUNT(*)::int AS count,
-                COALESCE(SUM(amount), 0)::float AS total,
-                COALESCE(AVG(amount), 0)::float AS avg
-           FROM "Expense"`
-      ),
-      pool.query(
-        `SELECT category,
-                COUNT(*)::int AS count,
-                COALESCE(SUM(amount), 0)::float AS total
-           FROM "Expense"
-          GROUP BY category
-          ORDER BY total DESC`
-      ),
-      pool.query(
-        `SELECT "paidBy" AS payer,
-                COUNT(*)::int AS count,
-                COALESCE(SUM(amount), 0)::float AS total
-           FROM "Expense"
-          GROUP BY "paidBy"
-          ORDER BY total DESC
-          LIMIT 12`
-      ),
-      pool.query(
-        `SELECT to_char(date, 'YYYY-MM') AS month,
-                COUNT(*)::int AS count,
-                COALESCE(SUM(amount), 0)::float AS total
-           FROM "Expense"
-          GROUP BY 1
-          ORDER BY 1 ASC`
-      ),
-    ]);
+    switch (section) {
+      case "overview": {
+        const [exp, led] = await Promise.all([
+          pool.query(
+            `SELECT COUNT(*)::int AS count,
+                    COALESCE(SUM(amount), 0)::float AS total,
+                    COALESCE(AVG(amount), 0)::float AS avg
+               FROM "Expense"`
+          ),
+          pool.query(`SELECT COUNT(*)::int AS count FROM "Ledger"`),
+        ]);
+        const spaces = Number(led.rows[0]?.count ?? 0);
+        const grandTotal = Number(exp.rows[0]?.total ?? 0);
+        return json({
+          totals: {
+            spaces,
+            expenses: Number(exp.rows[0]?.count ?? 0),
+            grandTotal,
+            avgExpense: Number(exp.rows[0]?.avg ?? 0),
+            avgPerSpace: spaces ? grandTotal / spaces : 0,
+          },
+        });
+      }
 
-    const spaces = spacesRes.rows.map((r) => ({
-      id: r.id as string,
-      name: r.name as string,
-      budget: r.budget === null ? null : Number(r.budget),
-      createdAt: r.created,
-      expenseCount: Number(r.expense_count),
-      total: Number(r.total),
-      firstDate: r.first_date,
-      lastDate: r.last_date,
-    }));
+      case "spaces": {
+        const [countRes, rowsRes] = await Promise.all([
+          pool.query(`SELECT COUNT(*)::int AS total FROM "Ledger"`),
+          pool.query(
+            `SELECT l.id,
+                    l.name,
+                    l."monthlyBudget" AS budget,
+                    l."createdAt"     AS created,
+                    (SELECT COUNT(*) FROM "Expense" e WHERE e."ledgerId" = l.id)::int AS expense_count,
+                    (SELECT COALESCE(SUM(amount), 0) FROM "Expense" e WHERE e."ledgerId" = l.id)::float AS total,
+                    (SELECT MIN(date) FROM "Expense" e WHERE e."ledgerId" = l.id) AS first_date,
+                    (SELECT MAX(date) FROM "Expense" e WHERE e."ledgerId" = l.id) AS last_date
+               FROM "Ledger" l
+              ORDER BY l."createdAt" ASC
+              LIMIT ${PAGE_SIZE} OFFSET $1`,
+            [page * PAGE_SIZE]
+          ),
+        ]);
+        return json({
+          total: Number(countRes.rows[0]?.total ?? 0),
+          page,
+          pageSize: PAGE_SIZE,
+          items: rowsRes.rows.map((r) => ({
+            id: r.id as string,
+            name: r.name as string,
+            budget: r.budget === null ? null : Number(r.budget),
+            createdAt: r.created,
+            expenseCount: Number(r.expense_count),
+            total: Number(r.total),
+            firstDate: r.first_date,
+            lastDate: r.last_date,
+          })),
+        });
+      }
 
-    const totalExpenses = Number(totalsRes.rows[0]?.count ?? 0);
-    const grandTotal = Number(totalsRes.rows[0]?.total ?? 0);
-    const avgExpense = Number(totalsRes.rows[0]?.avg ?? 0);
+      case "categories": {
+        const [countRes, rowsRes] = await Promise.all([
+          pool.query(`SELECT COUNT(DISTINCT category)::int AS total FROM "Expense"`),
+          pool.query(
+            `SELECT category,
+                    COUNT(*)::int AS count,
+                    COALESCE(SUM(amount), 0)::float AS total
+               FROM "Expense"
+              GROUP BY category
+              ORDER BY total DESC
+              LIMIT ${PAGE_SIZE} OFFSET $1`,
+            [page * PAGE_SIZE]
+          ),
+        ]);
+        return json({
+          total: Number(countRes.rows[0]?.total ?? 0),
+          page,
+          pageSize: PAGE_SIZE,
+          items: rowsRes.rows.map((r) => ({
+            category: r.category as string,
+            count: Number(r.count),
+            total: Number(r.total),
+          })),
+        });
+      }
 
-    return NextResponse.json(
-      {
-        totals: {
-          spaces: spaces.length,
-          expenses: totalExpenses,
-          grandTotal,
-          avgExpense,
-          avgPerSpace: spaces.length ? grandTotal / spaces.length : 0,
-        },
-        spaces,
-        byCategory: catRes.rows.map((r) => ({
-          category: r.category as string,
-          count: Number(r.count),
-          total: Number(r.total),
-        })),
-        topPayers: payerRes.rows.map((r) => ({
-          payer: (r.payer as string) || "—",
-          count: Number(r.count),
-          total: Number(r.total),
-        })),
-        monthly: monthlyRes.rows.map((r) => ({
-          month: r.month as string,
-          count: Number(r.count),
-          total: Number(r.total),
-        })),
-      },
-      { headers: { "Cache-Control": "no-store" } }
-    );
+      case "payers": {
+        const [countRes, rowsRes] = await Promise.all([
+          pool.query(`SELECT COUNT(DISTINCT "paidBy")::int AS total FROM "Expense"`),
+          pool.query(
+            `SELECT "paidBy" AS payer,
+                    COUNT(*)::int AS count,
+                    COALESCE(SUM(amount), 0)::float AS total
+               FROM "Expense"
+              GROUP BY "paidBy"
+              ORDER BY total DESC
+              LIMIT ${PAGE_SIZE} OFFSET $1`,
+            [page * PAGE_SIZE]
+          ),
+        ]);
+        return json({
+          total: Number(countRes.rows[0]?.total ?? 0),
+          page,
+          pageSize: PAGE_SIZE,
+          items: rowsRes.rows.map((r) => ({
+            payer: (r.payer as string) || "—",
+            count: Number(r.count),
+            total: Number(r.total),
+          })),
+        });
+      }
+
+      case "activity": {
+        const cfg = BUCKET[bucket];
+        const [seriesRes, perfRes, activeRes] = await Promise.all([
+          pool.query(
+            `SELECT to_char(date_trunc('${cfg.unit}', "createdAt"), '${cfg.fmt}') AS period,
+                    date_trunc('${cfg.unit}', "createdAt") AS bucket_start,
+                    COUNT(*)::int AS count,
+                    COALESCE(SUM(amount), 0)::float AS total
+               FROM "Expense"
+              WHERE "createdAt" >= date_trunc('${cfg.unit}', now()) - interval '${cfg.windows} ${cfg.unit}'
+              GROUP BY 1, 2
+              ORDER BY 2 ASC`
+          ),
+          pool.query(
+            `SELECT
+               COUNT(*) FILTER (WHERE "createdAt" >= date_trunc('${cfg.unit}', now()))::int AS cur_count,
+               COALESCE(SUM(amount) FILTER (WHERE "createdAt" >= date_trunc('${cfg.unit}', now())), 0)::float AS cur_total,
+               COUNT(*) FILTER (
+                 WHERE "createdAt" >= date_trunc('${cfg.unit}', now()) - interval '1 ${cfg.unit}'
+                   AND "createdAt" <  date_trunc('${cfg.unit}', now())
+               )::int AS prev_count,
+               COALESCE(SUM(amount) FILTER (
+                 WHERE "createdAt" >= date_trunc('${cfg.unit}', now()) - interval '1 ${cfg.unit}'
+                   AND "createdAt" <  date_trunc('${cfg.unit}', now())
+               ), 0)::float AS prev_total
+             FROM "Expense"`
+          ),
+          pool.query(
+            `SELECT l.name,
+                    COUNT(e.id)::int AS inputs,
+                    COALESCE(SUM(e.amount), 0)::float AS total
+               FROM "Ledger" l
+               JOIN "Expense" e ON e."ledgerId" = l.id
+              WHERE e."createdAt" >= date_trunc('${cfg.unit}', now()) - interval '${cfg.windows} ${cfg.unit}'
+              GROUP BY l.id, l.name
+              ORDER BY inputs DESC
+              LIMIT 5`
+          ),
+        ]);
+
+        const p = perfRes.rows[0] ?? {};
+        return json({
+          bucket,
+          series: seriesRes.rows.map((r) => ({
+            period: r.period as string,
+            count: Number(r.count),
+            total: Number(r.total),
+          })),
+          performance: {
+            curCount: Number(p.cur_count ?? 0),
+            curTotal: Number(p.cur_total ?? 0),
+            prevCount: Number(p.prev_count ?? 0),
+            prevTotal: Number(p.prev_total ?? 0),
+          },
+          activeSpaces: activeRes.rows.map((r) => ({
+            name: r.name as string,
+            inputs: Number(r.inputs),
+            total: Number(r.total),
+          })),
+        });
+      }
+    }
   } catch {
-    // Never surface driver internals (may echo the host / credentials).
-    return NextResponse.json(
-      { error: "Could not query the database. Check the connection string." },
-      { status: 502, headers: { "Cache-Control": "no-store" } }
-    );
+    return json({ error: "Could not query the database. Check the connection string." }, 502);
   } finally {
     await pool.end().catch(() => {});
   }
