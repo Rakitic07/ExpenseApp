@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Plus, LogOut, Sparkles, Wallet, ShieldCheck, PartyPopper, Github } from "lucide-react";
+import { Plus, LogOut, Sparkles, Wallet, ShieldCheck, PartyPopper, Github, Shield } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Expense, ExpenseDraft } from "@/lib/types";
 import { CurrencyProvider, formatFor } from "@/lib/currency";
@@ -29,6 +29,7 @@ import Dashboard from "./Dashboard";
 import ExpenseForm from "./ExpenseForm";
 import CurrencySelect from "./CurrencySelect";
 import SyncButton from "./SyncButton";
+import AdminDashboard from "./AdminDashboard";
 
 type Status = "loading" | "guest" | "authed";
 
@@ -45,6 +46,7 @@ export default function Spendly() {
   const [online, setOnline] = useState(true);
   const [syncError, setSyncError] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
 
   // Push queued writes to the DB, then pull the canonical list (when the queue
   // is fully drained). Takes the space explicitly so it can run before the
@@ -414,18 +416,32 @@ export default function Spendly() {
 
       <footer className="flex flex-col items-center gap-2 pb-8 pt-4 text-center text-xs text-white/35">
         <span>Spendly-Plus · built with Next.js · deploy-ready for Vercel</span>
-        <a
-          href="https://github.com/Rakitic07/ExpenseApp"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="View source & creator on GitHub"
-          title="Made by Rakitic07 · View on GitHub"
-          className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-white/50 transition hover:bg-white/10 hover:text-white/80"
-        >
-          <Github className="h-4 w-4" />
-          <span>Rakitic07</span>
-        </a>
+        <div className="flex items-center gap-1">
+          <a
+            href="https://github.com/Rakitic07/ExpenseApp"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="View source & creator on GitHub"
+            title="Made by Rakitic07 · View on GitHub"
+            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-white/50 transition hover:bg-white/10 hover:text-white/80"
+          >
+            <Github className="h-4 w-4" />
+            <span>Rakitic07</span>
+          </a>
+          <button
+            type="button"
+            onClick={() => setAdminOpen(true)}
+            aria-label="Open admin dashboard"
+            title="Admin dashboard (owner only)"
+            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-white/50 transition hover:bg-white/10 hover:text-white/80"
+          >
+            <Shield className="h-4 w-4" />
+            <span>Admin</span>
+          </button>
+        </div>
       </footer>
+
+      <AdminDashboard open={adminOpen} onClose={() => setAdminOpen(false)} />
     </main>
     </CurrencyProvider>
   );
