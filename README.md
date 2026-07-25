@@ -5,6 +5,8 @@ UI. Log daily, monthly and yearly expenses, visualise them with live donut, tren
 and bar charts, and keep everything private behind a **passphrase**. Built with
 Next.js and ready to deploy to **Vercel** in minutes.
 
+![Spendly-Plus landing page](docs/landing.png)
+
 ## ✨ Features
 
 - **Liquid-glass UI** — frosted panels, animated gradient blobs, spring-based sheets.

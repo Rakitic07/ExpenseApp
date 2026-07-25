@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { authSchema } from "@/lib/validation";
+import { registerSchema } from "@/lib/validation";
 import { createSession } from "@/lib/auth";
 import { generateRecoveryCode, normalizeCode } from "@/lib/recovery";
 
@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const parsed = authSchema.safeParse(body);
+  const parsed = registerSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.issues[0]?.message ?? "Invalid input" },

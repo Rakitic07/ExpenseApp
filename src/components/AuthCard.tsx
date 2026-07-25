@@ -142,10 +142,11 @@ export default function AuthCard({ onAuthed }: { onAuthed: (name: string) => voi
           <User className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
           <input
             className="glass-input pl-11"
-            placeholder="Space name (e.g. Raktim's Space)"
+            placeholder={mode === "create" ? "Space name (min 6 characters)" : "Space name"}
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoComplete="username"
+            minLength={mode === "create" ? 6 : undefined}
             required
           />
         </div>

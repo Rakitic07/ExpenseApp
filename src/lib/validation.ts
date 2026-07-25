@@ -33,6 +33,24 @@ const passField = z
   .min(6, "Passphrase must be at least 6 characters")
   .max(128, "Passphrase is too long");
 
+// New spaces must use a longer, less-guessable name.
+export const registerSchema = z.object({
+  name: z.string().trim().min(6, "Space name must be at least 6 characters").max(40, "Name is too long"),
+  passphrase: passField,
+});
+
+// "Find my space" helper: search by a name prefix (>=4 chars) and/or verify by
+// passphrase. At least one usable signal is required.
+export const findSpaceSchema = z
+  .object({
+    query: z.string().trim().max(40).optional().or(z.literal("")),
+    passphrase: z.string().max(128).optional().or(z.literal("")),
+  })
+  .refine(
+    (d) => (!!d.query && d.query.trim().length >= 4) || (!!d.passphrase && d.passphrase.length >= 6),
+    { message: "Type at least 4 letters of the name, or your full passphrase." }
+  );
+
 // Self-service reset with the recovery code shown at signup.
 export const recoverSchema = z.object({
   name: nameField,

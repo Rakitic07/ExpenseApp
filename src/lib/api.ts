@@ -73,6 +73,16 @@ export const api = {
     return handle<{ ticket: string }>(res);
   },
 
+  // "Find my space" helper: search by name prefix (>=4 chars) and/or passphrase.
+  async findSpace(query: string, passphrase?: string) {
+    const res = await fetch("/api/auth/find-space", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, passphrase }),
+    });
+    return handle<{ matches: string[] }>(res);
+  },
+
   async resetStatus(name: string, ticket: string) {
     const res = await fetch("/api/auth/reset-status", {
       method: "POST",

@@ -13,10 +13,12 @@ import {
   ShieldQuestion,
   Ticket,
   ArrowLeft,
+  Search,
+  UserSearch,
 } from "lucide-react";
 import { api } from "@/lib/api";
 
-type Step = "choose" | "code" | "code-done" | "request" | "request-done" | "status";
+type Step = "choose" | "find" | "code" | "code-done" | "request" | "request-done" | "status";
 
 function CodeBox({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
@@ -55,6 +57,10 @@ export default function RecoverModal({ open, onClose }: { open: boolean; onClose
   const [newCode, setNewCode] = useState("");
   const [issuedTicket, setIssuedTicket] = useState("");
   const [statusResult, setStatusResult] = useState<string | null>(null);
+  // "Find my space" helper state.
+  const [findQuery, setFindQuery] = useState("");
+  const [findPass, setFindPass] = useState("");
+  const [findResults, setFindResults] = useState<string[] | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -69,6 +75,9 @@ export default function RecoverModal({ open, onClose }: { open: boolean; onClose
       setNewCode("");
       setIssuedTicket("");
       setStatusResult(null);
+      setFindQuery("");
+      setFindPass("");
+      setFindResults(null);
     }
   }, [open]);
 
@@ -105,6 +114,27 @@ export default function RecoverModal({ open, onClose }: { open: boolean; onClose
     } finally {
       setLoading(false);
     }
+  }
+
+  async function submitFind(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setFindResults(null);
+    try {
+      const res = await api.findSpace(findQuery, findPass || undefined);
+      setFindResults(res.matches);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function pickFoundName(picked: string) {
+    setName(picked);
+    setError(null);
+    setStep("choose");
   }
 
   async function submitStatus(e: React.FormEvent) {
@@ -151,6 +181,11 @@ export default function RecoverModal({ open, onClose }: { open: boolean; onClose
 
             {step === "choose" && (
               <div className="space-y-3">
+                {name && (
+                  <p className="rounded-xl border border-[#38d9a9]/25 bg-[#38d9a9]/10 px-3 py-2 text-xs text-white/75">
+                    Using space <strong className="text-white">{name}</strong> — now pick how to recover.
+                  </p>
+                )}
                 <button
                   type="button"
                   onClick={() => setStep("code")}
@@ -184,7 +219,55 @@ export default function RecoverModal({ open, onClose }: { open: boolean; onClose
                     <span className="block text-xs text-white/50">Use the ticket code you were given</span>
                   </span>
                 </button>
+
+                <div className="pt-1 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setStep("find")}
+                    className="inline-flex items-center gap-1.5 text-xs text-white/55 underline-offset-2 transition hover:text-white/85 hover:underline"
+                  >
+                    <UserSearch className="h-3.5 w-3.5" /> Forgot your space name too?
+                  </button>
+                </div>
               </div>
+            )}
+
+            {step === "find" && (
+              <form onSubmit={submitFind} className="space-y-3">
+                <BackBtn onClick={back} />
+                <p className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/55">
+                  Type the first few letters of your space name (at least 4). Don&apos;t remember any of it? Enter your
+                  passphrase instead and we&apos;ll find the matching space.
+                </p>
+                <Field label="First letters of the name" value={findQuery} onChange={setFindQuery} placeholder="e.g. rakt (min 4)" />
+                <Field label="…or your passphrase" value={findPass} onChange={setFindPass} placeholder="your full passphrase" type="password" />
+                {error && <ErrorBox msg={error} />}
+                <SubmitBtn loading={loading} label="Search" />
+                {findResults && (
+                  <div className="space-y-1.5 pt-1">
+                    {findResults.length === 0 ? (
+                      <p className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/60">
+                        No matching space found. Try different letters or your exact passphrase.
+                      </p>
+                    ) : (
+                      <>
+                        <p className="text-[11px] uppercase tracking-wide text-white/40">Matches — tap to use</p>
+                        {findResults.map((m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => pickFoundName(m)}
+                            className="flex w-full items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-left text-sm transition hover:bg-white/10"
+                          >
+                            <span className="truncate font-medium text-white/90">{m}</span>
+                            <Search className="h-3.5 w-3.5 shrink-0 text-white/40" />
+                          </button>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
+              </form>
             )}
 
             {step === "code" && (

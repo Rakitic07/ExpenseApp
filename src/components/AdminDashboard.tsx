@@ -18,6 +18,7 @@ import {
   EyeOff,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Activity as ActivityIcon,
   Users,
   Tag,
@@ -290,7 +291,7 @@ export default function AdminDashboard({ open, onClose }: { open: boolean; onClo
             {/* header */}
             <div className="mb-5 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2.5">
-                <div className="grid h-9 w-9 place-items-center rounded-2xl bg-gradient-to-br from-[#38d9a9] to-[#7c8cff]">
+                <div className="grid h-9 w-9 place-items-center rounded-2xl bg-gradient-to-br from-[#7c8cff] to-[#ff6bd0]">
                   <ShieldCheck className="h-5 w-5" />
                 </div>
                 <div>
@@ -874,123 +875,153 @@ function ResetsTab({
         Cross-check the owner&apos;s answers against the space&apos;s real data below before approving. Approving
         activates the new passphrase the owner already chose.
       </p>
-      {data.items.map((r) => {
-        let answers: Record<string, string> = {};
-        try {
-          answers = JSON.parse(r.questionnaire);
-        } catch {
-          /* ignore malformed */
-        }
-        const answered = Object.entries(answers).filter(([, v]) => v && String(v).trim());
-        const match = scoreMatch(answers, r);
-        return (
-          <div key={r.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-semibold">{r.spaceName}</span>
-                <StatusBadge status={r.status} />
-                <MatchBadge m={match} />
-              </div>
-              <span className="text-xs text-white/45">{fmtDate(r.requestedAt)}</span>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              {/* owner's claims */}
-              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                <p className="mb-2 text-[11px] uppercase tracking-wide text-white/45">Owner&apos;s answers</p>
-                {answered.length ? (
-                  <ul className="space-y-1 text-sm">
-                    {answered.map(([k, v]) => {
-                      const scored = k in match.perField;
-                      const ok = match.perField[k];
-                      return (
-                        <li key={k} className="flex justify-between gap-3">
-                          <span className="flex items-center gap-1 text-white/50">
-                            {scored &&
-                              (ok ? (
-                                <CheckCircle2 className="h-3 w-3 shrink-0 text-[#7be7c4]" />
-                              ) : (
-                                <XCircle className="h-3 w-3 shrink-0 text-[#ffb3b3]" />
-                              ))}
-                            {QLABELS[k] ?? k}
-                          </span>
-                          <span className="text-right text-white/85">{v}</span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-white/40">No answers provided.</p>
-                )}
-              </div>
-
-              {/* real data */}
-              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                <p className="mb-2 text-[11px] uppercase tracking-wide text-white/45">Real data (verify)</p>
-                <ul className="space-y-1 text-sm">
-                  <li className="flex justify-between gap-3">
-                    <span className="text-white/50">Created</span>
-                    <span className="text-white/85">{fmtDate(r.spaceCreated)}</span>
-                  </li>
-                  <li className="flex justify-between gap-3">
-                    <span className="text-white/50">Expenses</span>
-                    <span className="text-white/85">
-                      {r.expenseCount} · {nf(r.total)}
-                    </span>
-                  </li>
-                  {r.budget !== null && (
-                    <li className="flex justify-between gap-3">
-                      <span className="text-white/50">Monthly budget</span>
-                      <span className="text-white/85">{nf(r.budget)}</span>
-                    </li>
-                  )}
-                </ul>
-                {r.recent.length > 0 && (
-                  <div className="mt-2 border-t border-white/10 pt-2">
-                    <p className="mb-1 text-[10px] uppercase tracking-wide text-white/40">Recent entries</p>
-                    <ul className="space-y-0.5 text-xs text-white/70">
-                      {r.recent.map((e, i) => (
-                        <li key={i} className="flex justify-between gap-2">
-                          <span className="truncate">
-                            {e.title} <span className="text-white/40">· {e.payer}</span>
-                          </span>
-                          <span className="shrink-0 tabular-nums">{nf(e.amount)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {r.hasRecovery && r.status === "pending" && (
-              <p className="mt-2 text-[11px] text-white/40">
-                Note: this space has a recovery code set — the owner could reset it themselves with it.
-              </p>
-            )}
-
-            {r.status === "pending" ? (
-              <div className="mt-3 flex gap-2">
-                <button
-                  onClick={() => onAction(r.id, "approve")}
-                  className="glass-btn-primary flex-1 justify-center py-2"
-                >
-                  <CheckCircle2 className="h-4 w-4" /> Approve
-                </button>
-                <button
-                  onClick={() => onAction(r.id, "reject")}
-                  className="glass-btn flex-1 justify-center py-2 text-[#ffb3b3]"
-                >
-                  <XCircle className="h-4 w-4" /> Reject
-                </button>
-              </div>
-            ) : (
-              r.resolvedAt && <p className="mt-3 text-xs text-white/45">Resolved {fmtDate(r.resolvedAt)}</p>
-            )}
-          </div>
-        );
-      })}
+      {data.items.map((r) => (
+        <ResetCard key={r.id} r={r} onAction={onAction} />
+      ))}
       <Pager page={data.page} total={data.total} pageSize={data.pageSize} onPage={onPage} />
+    </div>
+  );
+}
+
+function ResetCard({
+  r,
+  onAction,
+}: {
+  r: ResetItem;
+  onAction: (id: string, action: "approve" | "reject") => void;
+}) {
+  const isPending = r.status === "pending";
+  // Pending requests need attention, so expand them; resolved ones stay collapsed.
+  const [open, setOpen] = useState(isPending);
+
+  let answers: Record<string, string> = {};
+  try {
+    answers = JSON.parse(r.questionnaire);
+  } catch {
+    /* ignore malformed */
+  }
+  const answered = Object.entries(answers).filter(([, v]) => v && String(v).trim());
+  const match = scoreMatch(answers, r);
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold">{r.spaceName}</span>
+          <StatusBadge status={r.status} />
+          <MatchBadge m={match} />
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-white/45">{fmtDate(r.requestedAt)}</span>
+          <ChevronDown className={`h-4 w-4 shrink-0 text-white/45 transition-transform ${open ? "rotate-180" : ""}`} />
+        </div>
+      </button>
+
+      {open && (
+        <>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {/* owner's claims */}
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+              <p className="mb-2 text-[11px] uppercase tracking-wide text-white/45">Owner&apos;s answers</p>
+              {answered.length ? (
+                <ul className="space-y-1 text-sm">
+                  {answered.map(([k, v]) => {
+                    const scored = k in match.perField;
+                    const ok = match.perField[k];
+                    return (
+                      <li key={k} className="flex justify-between gap-3">
+                        <span className="flex items-center gap-1 text-white/50">
+                          {scored &&
+                            (ok ? (
+                              <CheckCircle2 className="h-3 w-3 shrink-0 text-[#7be7c4]" />
+                            ) : (
+                              <XCircle className="h-3 w-3 shrink-0 text-[#ffb3b3]" />
+                            ))}
+                          {QLABELS[k] ?? k}
+                        </span>
+                        <span className="text-right text-white/85">{v}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="text-sm text-white/40">No answers provided.</p>
+              )}
+            </div>
+
+            {/* real data */}
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+              <p className="mb-2 text-[11px] uppercase tracking-wide text-white/45">Real data (verify)</p>
+              <ul className="space-y-1 text-sm">
+                <li className="flex justify-between gap-3">
+                  <span className="text-white/50">Created</span>
+                  <span className="text-white/85">{fmtDate(r.spaceCreated)}</span>
+                </li>
+                <li className="flex justify-between gap-3">
+                  <span className="text-white/50">Expenses</span>
+                  <span className="text-white/85">
+                    {r.expenseCount} · {nf(r.total)}
+                  </span>
+                </li>
+                {r.budget !== null && (
+                  <li className="flex justify-between gap-3">
+                    <span className="text-white/50">Monthly budget</span>
+                    <span className="text-white/85">{nf(r.budget)}</span>
+                  </li>
+                )}
+              </ul>
+              {r.recent.length > 0 && (
+                <div className="mt-2 border-t border-white/10 pt-2">
+                  <p className="mb-1 text-[10px] uppercase tracking-wide text-white/40">Recent entries</p>
+                  <ul className="space-y-0.5 text-xs text-white/70">
+                    {r.recent.map((e, i) => (
+                      <li key={i} className="flex justify-between gap-2">
+                        <span className="truncate">
+                          {e.title} <span className="text-white/40">· {e.payer}</span>
+                        </span>
+                        <span className="shrink-0 tabular-nums">{nf(e.amount)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {r.hasRecovery && isPending && (
+            <p className="mt-2 text-[11px] text-white/40">
+              Note: this space has a recovery code set — the owner could reset it themselves with it.
+            </p>
+          )}
+
+          {isPending ? (
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={() => onAction(r.id, "approve")}
+                className="glass-btn-primary flex-1 justify-center py-2"
+              >
+                <CheckCircle2 className="h-4 w-4" /> Approve
+              </button>
+              <button
+                onClick={() => onAction(r.id, "reject")}
+                className="glass-btn flex-1 justify-center py-2 text-[#ffb3b3]"
+              >
+                <XCircle className="h-4 w-4" /> Reject
+              </button>
+            </div>
+          ) : (
+            r.resolvedAt && <p className="mt-3 text-xs text-white/45">Resolved {fmtDate(r.resolvedAt)}</p>
+          )}
+        </>
+      )}
+
+      {!open && r.resolvedAt && (
+        <p className="mt-2 text-xs text-white/45">Resolved {fmtDate(r.resolvedAt)}</p>
+      )}
     </div>
   );
 }
