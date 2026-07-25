@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { KeyRound, Lock, Sparkles, User, Eye, EyeOff } from "lucide-react";
+import { KeyRound, Lock, Sparkles, User, Eye, EyeOff, Copy, Check, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import RecoverModal from "./RecoverModal";
 
 type Mode = "unlock" | "create";
 
@@ -15,22 +16,83 @@ export default function AuthCard({ onAuthed }: { onAuthed: (name: string) => voi
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recoverOpen, setRecoverOpen] = useState(false);
+  // After a successful sign-up we show the one-time recovery code before
+  // entering the space, so the owner can save it.
+  const [created, setCreated] = useState<{ name: string; code: string } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
     try {
-      const res =
-        mode === "create"
-          ? await api.register(name, passphrase)
-          : await api.login(name, passphrase);
-      onAuthed(res.name);
+      if (mode === "create") {
+        const res = await api.register(name, passphrase);
+        setCreated({ name: res.name, code: res.recoveryCode });
+      } else {
+        const res = await api.login(name, passphrase);
+        onAuthed(res.name);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setLoading(false);
     }
+  }
+
+  // One-time recovery-code screen shown right after creating a space.
+  if (created) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 18, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+        className="glass-strong w-full max-w-md rounded-4xl p-7 sm:p-8"
+      >
+        <div className="mb-5 flex items-center gap-3">
+          <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-[#38d9a9] to-[#7c8cff] shadow-glow">
+            <ShieldCheck className="h-6 w-6" />
+          </div>
+          <div>
+            <h2 className="text-xl font-semibold">Save your recovery code</h2>
+            <p className="text-sm text-white/60">Space “{created.name}” is ready.</p>
+          </div>
+        </div>
+
+        <p className="mb-3 rounded-2xl border border-[#ffd43b]/30 bg-[#ffd43b]/10 px-4 py-3 text-sm text-white/80">
+          This is the <strong>only</strong> way to reset your passphrase yourself if you forget it.
+          It&apos;s shown <strong>once</strong> and stored only as a hash — save it somewhere safe now.
+        </p>
+
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/15 bg-white/5 px-4 py-3">
+          <code className="select-all break-all font-mono text-base tracking-wide text-white">{created.code}</code>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(created.code);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              } catch {
+                /* clipboard blocked — user can select manually */
+              }
+            }}
+            className="glass-btn shrink-0 px-2.5 py-2"
+            aria-label="Copy recovery code"
+          >
+            {copied ? <Check className="h-4 w-4 text-[#38d9a9]" /> : <Copy className="h-4 w-4" />}
+          </button>
+        </div>
+
+        <button
+          onClick={() => onAuthed(created.name)}
+          className="glass-btn-primary mt-5 w-full justify-center py-3"
+        >
+          I&apos;ve saved it — continue
+        </button>
+      </motion.div>
+    );
   }
 
   return (
@@ -80,7 +142,7 @@ export default function AuthCard({ onAuthed }: { onAuthed: (name: string) => voi
           <User className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
           <input
             className="glass-input pl-11"
-            placeholder="Space name (e.g. Raktim & Sagorica)"
+            placeholder="Space name (e.g. Raktim's Space)"
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoComplete="username"
@@ -125,10 +187,22 @@ export default function AuthCard({ onAuthed }: { onAuthed: (name: string) => voi
         </button>
       </form>
 
-      <p className="mt-5 text-center text-xs text-white/45">
-        Your passphrase is hashed and never stored in plain text. Keep it safe —
-        it is the only way back into your space.
+      <div className="mt-4 text-center">
+        <button
+          type="button"
+          onClick={() => setRecoverOpen(true)}
+          className="text-xs text-white/55 underline-offset-2 transition hover:text-white/85 hover:underline"
+        >
+          Forgot your passphrase?
+        </button>
+      </div>
+
+      <p className="mt-4 text-center text-xs text-white/45">
+        Your passphrase is hashed and never stored in plain text. At sign-up you
+        also get a one-time recovery code — keep it safe.
       </p>
+
+      <RecoverModal open={recoverOpen} onClose={() => setRecoverOpen(false)} />
     </motion.div>
   );
 }

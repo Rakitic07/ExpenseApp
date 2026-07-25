@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { createHash, timingSafeEqual } from "crypto";
-import { Pool } from "pg";
 import { z } from "zod";
+import { adminGate, makeAdminPool } from "@/lib/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,18 +16,10 @@ const PAGE_SIZE = 5;
 const bodySchema = z.object({
   databaseUrl: z.string().min(1, "DATABASE_URL is required"),
   authSecret: z.string().min(1, "AUTH_SECRET is required"),
-  section: z.enum(["overview", "spaces", "categories", "payers", "activity"]),
+  section: z.enum(["overview", "spaces", "categories", "payers", "activity", "resets"]),
   page: z.number().int().min(0).max(100_000).optional(),
   bucket: z.enum(["day", "week", "month", "year"]).optional(),
 });
-
-// Length-independent, timing-safe comparison (hash both to a fixed size first,
-// otherwise timingSafeEqual throws on differing lengths and leaks length info).
-function secretsMatch(a: string, b: string): boolean {
-  const ha = createHash("sha256").update(a).digest();
-  const hb = createHash("sha256").update(b).digest();
-  return timingSafeEqual(ha, hb);
-}
 
 function json(body: unknown, status = 200) {
   return NextResponse.json(body, {
@@ -36,8 +27,6 @@ function json(body: unknown, status = 200) {
     headers: { "Cache-Control": "no-store" },
   });
 }
-
-const unauthorized = () => json({ error: "Invalid credentials." }, 401);
 
 // Fixed, allow-listed bucket config — these strings are inlined into SQL, so
 // they must never come from free-form user input (they don't: zod enum above).
@@ -49,11 +38,6 @@ const BUCKET = {
 } as const;
 
 export async function POST(req: Request) {
-  const serverSecret = process.env.AUTH_SECRET;
-  if (!serverSecret) {
-    return json({ error: "Server is not configured for admin access." }, 500);
-  }
-
   let raw: unknown;
   try {
     raw = await req.json();
@@ -70,26 +54,10 @@ export async function POST(req: Request) {
   const page = parsed.data.page ?? 0;
   const bucket = parsed.data.bucket ?? "week";
 
-  if (!secretsMatch(authSecret, serverSecret)) return unauthorized();
+  const gate = adminGate(databaseUrl, authSecret);
+  if (!gate.ok) return json({ error: gate.error }, gate.status);
 
-  if (!/^postgres(ql)?:\/\//i.test(databaseUrl.trim())) {
-    return json({ error: "DATABASE_URL must be a valid PostgreSQL connection string." }, 400);
-  }
-
-  // Defence in depth: if the server has its own DATABASE_URL, require the
-  // supplied one to match so this endpoint can't be pointed at arbitrary hosts.
-  const envDbUrl = process.env.DATABASE_URL;
-  if (envDbUrl && !secretsMatch(databaseUrl.trim(), envDbUrl.trim())) {
-    return unauthorized();
-  }
-
-  const pool = new Pool({
-    connectionString: databaseUrl.trim(),
-    ssl: { rejectUnauthorized: false },
-    max: 1,
-    connectionTimeoutMillis: 8000,
-    statement_timeout: 8000,
-  });
+  const pool = makeAdminPool(gate.url);
 
   try {
     switch (section) {
@@ -261,6 +229,54 @@ export async function POST(req: Request) {
             name: r.name as string,
             inputs: Number(r.inputs),
             total: Number(r.total),
+          })),
+        });
+      }
+
+      case "resets": {
+        // Reset requests with the space's real data so the admin can verify the
+        // owner's questionnaire before approving. Pending ones surface first.
+        const [countRes, rowsRes] = await Promise.all([
+          pool.query(`SELECT COUNT(*)::int AS total FROM "ResetRequest"`),
+          pool.query(
+            `SELECT r.id,
+                    r.status,
+                    r.questionnaire,
+                    r."createdAt" AS requested_at,
+                    r."resolvedAt" AS resolved_at,
+                    l.name AS space_name,
+                    l."createdAt" AS space_created,
+                    (l."recoveryHash" IS NOT NULL) AS has_recovery,
+                    (SELECT COUNT(*) FROM "Expense" e WHERE e."ledgerId" = l.id)::int AS expense_count,
+                    (SELECT COALESCE(SUM(amount), 0) FROM "Expense" e WHERE e."ledgerId" = l.id)::float AS total,
+                    (SELECT json_agg(x) FROM (
+                       SELECT title, amount, "paidBy" AS payer, date
+                         FROM "Expense" e WHERE e."ledgerId" = l.id
+                        ORDER BY e."createdAt" DESC LIMIT 5
+                     ) x) AS recent
+               FROM "ResetRequest" r
+               JOIN "Ledger" l ON l.id = r."ledgerId"
+              ORDER BY (r.status = 'pending') DESC, r."createdAt" DESC
+              LIMIT ${PAGE_SIZE} OFFSET $1`,
+            [page * PAGE_SIZE]
+          ),
+        ]);
+        return json({
+          total: Number(countRes.rows[0]?.total ?? 0),
+          page,
+          pageSize: PAGE_SIZE,
+          items: rowsRes.rows.map((r) => ({
+            id: r.id as string,
+            status: r.status as string,
+            spaceName: r.space_name as string,
+            spaceCreated: r.space_created,
+            requestedAt: r.requested_at,
+            resolvedAt: r.resolved_at,
+            hasRecovery: Boolean(r.has_recovery),
+            expenseCount: Number(r.expense_count),
+            total: Number(r.total),
+            questionnaire: r.questionnaire as string,
+            recent: (r.recent ?? []) as { title: string; amount: number; payer: string; date: string }[],
           })),
         });
       }

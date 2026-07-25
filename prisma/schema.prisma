@@ -15,10 +15,36 @@ model Ledger {
   nameKey   String    @unique
   // bcrypt hash of the passphrase. Never store the raw passphrase.
   passHash  String
+  // bcrypt hash of the one-time recovery code shown at signup. Lets an owner
+  // reset their own passphrase without an admin. Null for legacy spaces.
+  recoveryHash String?
   // Optional recurring monthly budget goal, synced across devices.
   monthlyBudget Float?
   createdAt DateTime  @default(now())
   expenses  Expense[]
+  resetRequests ResetRequest[]
+}
+
+// An owner-initiated, admin-approved passphrase reset. The owner proposes their
+// new passphrase (stored only as a bcrypt hash) and receives a ticket code to
+// check status. Nothing changes until an admin verifies the questionnaire
+// against the real data and approves — then the proposed hash becomes active.
+model ResetRequest {
+  id            String    @id @default(cuid())
+  ledgerId      String
+  ledger        Ledger    @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
+  // sha256 of the high-entropy ticket code (used for status lookup).
+  ticketHash    String    @unique
+  // bcrypt hash of the new passphrase the owner wants to set.
+  proposedHash  String
+  // JSON blob of identifying answers the owner supplied (no secrets).
+  questionnaire String
+  status        String    @default("pending") // pending | approved | rejected
+  createdAt     DateTime  @default(now())
+  resolvedAt    DateTime?
+
+  @@index([ledgerId])
+  @@index([status])
 }
 
 model Expense {

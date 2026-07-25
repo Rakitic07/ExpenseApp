@@ -27,5 +27,38 @@ export const expenseSchema = z.object({
   notes: z.string().trim().max(280).optional().or(z.literal("")),
 });
 
+const nameField = z.string().trim().min(2, "Name must be at least 2 characters").max(40, "Name is too long");
+const passField = z
+  .string()
+  .min(6, "Passphrase must be at least 6 characters")
+  .max(128, "Passphrase is too long");
+
+// Self-service reset with the recovery code shown at signup.
+export const recoverSchema = z.object({
+  name: nameField,
+  recoveryCode: z.string().trim().min(4, "Recovery code is required").max(64),
+  passphrase: passField,
+});
+
+// Owner-initiated, admin-approved reset. The owner proposes a new passphrase
+// and supplies identifying answers the admin can verify against the real data.
+export const resetRequestSchema = z.object({
+  name: nameField,
+  passphrase: passField,
+  questionnaire: z.object({
+    approxCreated: z.string().trim().max(120).optional().or(z.literal("")),
+    recentExpense: z.string().trim().max(200).optional().or(z.literal("")),
+    recentAmount: z.string().trim().max(60).optional().or(z.literal("")),
+    payerName: z.string().trim().max(80).optional().or(z.literal("")),
+    budget: z.string().trim().max(60).optional().or(z.literal("")),
+    note: z.string().trim().max(500).optional().or(z.literal("")),
+  }),
+});
+
+export const resetStatusSchema = z.object({
+  name: nameField,
+  ticket: z.string().trim().min(4, "Ticket code is required").max(64),
+});
+
 export type ExpenseInput = z.infer<typeof expenseSchema>;
 export type AuthInput = z.infer<typeof authSchema>;

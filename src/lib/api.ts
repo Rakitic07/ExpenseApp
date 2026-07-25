@@ -45,7 +45,41 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, passphrase }),
     });
-    return handle<{ name: string }>(res);
+    return handle<{ name: string; recoveryCode: string }>(res);
+  },
+
+  // Self-service reset using the recovery code shown at signup. Returns a fresh
+  // recovery code (the old one is single-use).
+  async recover(name: string, recoveryCode: string, passphrase: string) {
+    const res = await fetch("/api/auth/recover", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, recoveryCode, passphrase }),
+    });
+    return handle<{ name: string; recoveryCode: string }>(res);
+  },
+
+  // Ask an admin to approve a reset. Returns a ticket code to check status with.
+  async requestReset(
+    name: string,
+    passphrase: string,
+    questionnaire: Record<string, string>
+  ) {
+    const res = await fetch("/api/auth/reset-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, passphrase, questionnaire }),
+    });
+    return handle<{ ticket: string }>(res);
+  },
+
+  async resetStatus(name: string, ticket: string) {
+    const res = await fetch("/api/auth/reset-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, ticket }),
+    });
+    return handle<{ status: "pending" | "approved" | "rejected" | "notfound"; resolvedAt?: string | null }>(res);
   },
 
   async login(name: string, passphrase: string) {

@@ -17,9 +17,26 @@ model Ledger {
   name      String
   nameKey   String    @unique
   passHash  String
+  recoveryHash String?
   monthlyBudget Float?
   createdAt DateTime  @default(now())
   expenses  Expense[]
+  resetRequests ResetRequest[]
+}
+
+model ResetRequest {
+  id            String    @id @default(cuid())
+  ledgerId      String
+  ledger        Ledger    @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
+  ticketHash    String    @unique
+  proposedHash  String
+  questionnaire String
+  status        String    @default("pending")
+  createdAt     DateTime  @default(now())
+  resolvedAt    DateTime?
+
+  @@index([ledgerId])
+  @@index([status])
 }
 
 model Expense {

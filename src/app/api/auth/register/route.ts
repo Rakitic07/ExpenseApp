@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { authSchema } from "@/lib/validation";
 import { createSession } from "@/lib/auth";
+import { generateRecoveryCode, normalizeCode } from "@/lib/recovery";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,10 +39,16 @@ export async function POST(req: Request) {
   }
 
   const passHash = await bcrypt.hash(passphrase, 12);
+
+  // One-time recovery code — shown once now, stored only as a hash. Lets the
+  // owner reset their own passphrase later without an admin.
+  const recoveryCode = generateRecoveryCode();
+  const recoveryHash = await bcrypt.hash(normalizeCode(recoveryCode), 12);
+
   const ledger = await prisma.ledger.create({
-    data: { name, nameKey, passHash },
+    data: { name, nameKey, passHash, recoveryHash },
   });
 
   await createSession({ ledgerId: ledger.id, name: ledger.name });
-  return NextResponse.json({ name: ledger.name }, { status: 201 });
+  return NextResponse.json({ name: ledger.name, recoveryCode }, { status: 201 });
 }

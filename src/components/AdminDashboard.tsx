@@ -21,6 +21,10 @@ import {
   Activity as ActivityIcon,
   Users,
   Tag,
+  LifeBuoy,
+  CheckCircle2,
+  XCircle,
+  Clock,
 } from "lucide-react";
 
 /* ---------- types ---------- */
@@ -52,7 +56,20 @@ type ActivityData = {
   performance: { curCount: number; curTotal: number; prevCount: number; prevTotal: number };
   activeSpaces: { name: string; inputs: number; total: number }[];
 };
-type Tab = "spaces" | "categories" | "payers" | "activity";
+type ResetItem = {
+  id: string;
+  status: string;
+  spaceName: string;
+  spaceCreated: string;
+  requestedAt: string;
+  resolvedAt: string | null;
+  hasRecovery: boolean;
+  expenseCount: number;
+  total: number;
+  questionnaire: string;
+  recent: { title: string; amount: number; payer: string; date: string }[];
+};
+type Tab = "spaces" | "categories" | "payers" | "activity" | "resets";
 type Creds = { databaseUrl: string; authSecret: string };
 
 /* ---------- helpers ---------- */
@@ -111,6 +128,7 @@ export default function AdminDashboard({ open, onClose }: { open: boolean; onClo
   const [payers, setPayers] = useState<Paged<Payer> | null>(null);
   const [bucket, setBucket] = useState<Bucket>("week");
   const [activity, setActivity] = useState<ActivityData | null>(null);
+  const [resets, setResets] = useState<Paged<ResetItem> | null>(null);
   const [tabLoading, setTabLoading] = useState(false);
   const [tabError, setTabError] = useState<string | null>(null);
 
@@ -132,6 +150,7 @@ export default function AdminDashboard({ open, onClose }: { open: boolean; onClo
       setPayers(null);
       setBucket("week");
       setActivity(null);
+      setResets(null);
       setTabLoading(false);
       setTabError(null);
     }
@@ -203,9 +222,31 @@ export default function AdminDashboard({ open, onClose }: { open: boolean; onClo
       else if (t === "categories") setCategories((await runSection(c, "categories", { page: opts.page ?? 0 })) as Paged<Cat>);
       else if (t === "payers") setPayers((await runSection(c, "payers", { page: opts.page ?? 0 })) as Paged<Payer>);
       else if (t === "activity") setActivity((await runSection(c, "activity", { bucket: opts.bucket ?? bucket })) as ActivityData);
+      else if (t === "resets") setResets((await runSection(c, "resets", { page: opts.page ?? 0 })) as Paged<ResetItem>);
     } catch (err) {
       setTabError(err instanceof Error ? err.message : "Failed to load.");
     } finally {
+      setTabLoading(false);
+    }
+  }
+
+  // Approve/reject a reset request, then refresh the current resets page.
+  async function resetAction(id: string, action: "approve" | "reject") {
+    if (!creds) return;
+    setTabLoading(true);
+    setTabError(null);
+    try {
+      const res = await fetch("/api/admin/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ ...creds, requestId: id, action }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? "Action failed.");
+      await load(creds, "resets", { page: resets?.page ?? 0 });
+    } catch (err) {
+      setTabError(err instanceof Error ? err.message : "Action failed.");
       setTabLoading(false);
     }
   }
@@ -219,6 +260,7 @@ export default function AdminDashboard({ open, onClose }: { open: boolean; onClo
     else if (t === "categories" && !categories) void load(creds, "categories", { page: 0 });
     else if (t === "payers" && !payers) void load(creds, "payers", { page: 0 });
     else if (t === "activity" && !activity) void load(creds, "activity", { bucket });
+    else if (t === "resets" && !resets) void load(creds, "resets", { page: 0 });
   }
 
   function changeBucket(b: Bucket) {
@@ -401,6 +443,7 @@ export default function AdminDashboard({ open, onClose }: { open: boolean; onClo
                   <TabBtn active={tab === "categories"} onClick={() => openTab("categories")} icon={<Tag className="h-3.5 w-3.5" />} label="Categories" />
                   <TabBtn active={tab === "payers"} onClick={() => openTab("payers")} icon={<Users className="h-3.5 w-3.5" />} label="Payers" />
                   <TabBtn active={tab === "activity"} onClick={() => openTab("activity")} icon={<ActivityIcon className="h-3.5 w-3.5" />} label="Activity" />
+                  <TabBtn active={tab === "resets"} onClick={() => openTab("resets")} icon={<LifeBuoy className="h-3.5 w-3.5" />} label="Resets" />
                 </div>
 
                 {/* tab content */}
@@ -417,8 +460,10 @@ export default function AdminDashboard({ open, onClose }: { open: boolean; onClo
                     <CategoriesTab data={categories} onPage={(p) => creds && load(creds, "categories", { page: p })} />
                   ) : tab === "payers" ? (
                     <PayersTab data={payers} onPage={(p) => creds && load(creds, "payers", { page: p })} />
-                  ) : (
+                  ) : tab === "activity" ? (
                     <ActivityTab data={activity} bucket={bucket} onBucket={changeBucket} />
+                  ) : (
+                    <ResetsTab data={resets} onPage={(p) => creds && load(creds, "resets", { page: p })} onAction={resetAction} />
                   )}
                 </div>
 
@@ -696,6 +741,150 @@ function DeltaCard({ cur, prev }: { cur: number; prev: number }) {
         {pct(cur, prev)}
       </p>
       <p className="text-xs text-white/50">vs previous period</p>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, { cls: string; icon: React.ReactNode; label: string }> = {
+    pending: { cls: "border-[#ffd43b]/30 bg-[#ffd43b]/10 text-[#ffe08a]", icon: <Clock className="h-3 w-3" />, label: "Pending" },
+    approved: { cls: "border-[#38d9a9]/30 bg-[#38d9a9]/10 text-[#7be7c4]", icon: <CheckCircle2 className="h-3 w-3" />, label: "Approved" },
+    rejected: { cls: "border-[#ff6b6b]/30 bg-[#ff6b6b]/10 text-[#ffb3b3]", icon: <XCircle className="h-3 w-3" />, label: "Rejected" },
+  };
+  const s = map[status] ?? map.pending;
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${s.cls}`}>
+      {s.icon}
+      {s.label}
+    </span>
+  );
+}
+
+const QLABELS: Record<string, string> = {
+  approxCreated: "Created around",
+  recentExpense: "A recent expense",
+  recentAmount: "A recent amount",
+  payerName: "A payer name",
+  budget: "Monthly budget",
+  note: "Extra note",
+};
+
+function ResetsTab({
+  data,
+  onPage,
+  onAction,
+}: {
+  data: Paged<ResetItem> | null;
+  onPage: (p: number) => void;
+  onAction: (id: string, action: "approve" | "reject") => void;
+}) {
+  if (!data) return null;
+  if (data.items.length === 0) {
+    return <p className="py-8 text-center text-sm text-white/45">No reset requests.</p>;
+  }
+  return (
+    <div className="space-y-4">
+      <p className="text-[11px] text-white/40">
+        Cross-check the owner&apos;s answers against the space&apos;s real data below before approving. Approving
+        activates the new passphrase the owner already chose.
+      </p>
+      {data.items.map((r) => {
+        let answers: Record<string, string> = {};
+        try {
+          answers = JSON.parse(r.questionnaire);
+        } catch {
+          /* ignore malformed */
+        }
+        const answered = Object.entries(answers).filter(([, v]) => v && String(v).trim());
+        return (
+          <div key={r.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold">{r.spaceName}</span>
+                <StatusBadge status={r.status} />
+              </div>
+              <span className="text-xs text-white/45">{fmtDate(r.requestedAt)}</span>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              {/* owner's claims */}
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <p className="mb-2 text-[11px] uppercase tracking-wide text-white/45">Owner&apos;s answers</p>
+                {answered.length ? (
+                  <ul className="space-y-1 text-sm">
+                    {answered.map(([k, v]) => (
+                      <li key={k} className="flex justify-between gap-3">
+                        <span className="text-white/50">{QLABELS[k] ?? k}</span>
+                        <span className="text-right text-white/85">{v}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-white/40">No answers provided.</p>
+                )}
+              </div>
+
+              {/* real data */}
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <p className="mb-2 text-[11px] uppercase tracking-wide text-white/45">Real data (verify)</p>
+                <ul className="space-y-1 text-sm">
+                  <li className="flex justify-between gap-3">
+                    <span className="text-white/50">Created</span>
+                    <span className="text-white/85">{fmtDate(r.spaceCreated)}</span>
+                  </li>
+                  <li className="flex justify-between gap-3">
+                    <span className="text-white/50">Expenses</span>
+                    <span className="text-white/85">
+                      {r.expenseCount} · {nf(r.total)}
+                    </span>
+                  </li>
+                </ul>
+                {r.recent.length > 0 && (
+                  <div className="mt-2 border-t border-white/10 pt-2">
+                    <p className="mb-1 text-[10px] uppercase tracking-wide text-white/40">Recent entries</p>
+                    <ul className="space-y-0.5 text-xs text-white/70">
+                      {r.recent.map((e, i) => (
+                        <li key={i} className="flex justify-between gap-2">
+                          <span className="truncate">
+                            {e.title} <span className="text-white/40">· {e.payer}</span>
+                          </span>
+                          <span className="shrink-0 tabular-nums">{nf(e.amount)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {r.hasRecovery && r.status === "pending" && (
+              <p className="mt-2 text-[11px] text-white/40">
+                Note: this space has a recovery code set — the owner could reset it themselves with it.
+              </p>
+            )}
+
+            {r.status === "pending" ? (
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={() => onAction(r.id, "approve")}
+                  className="glass-btn-primary flex-1 justify-center py-2"
+                >
+                  <CheckCircle2 className="h-4 w-4" /> Approve
+                </button>
+                <button
+                  onClick={() => onAction(r.id, "reject")}
+                  className="glass-btn flex-1 justify-center py-2 text-[#ffb3b3]"
+                >
+                  <XCircle className="h-4 w-4" /> Reject
+                </button>
+              </div>
+            ) : (
+              r.resolvedAt && <p className="mt-3 text-xs text-white/45">Resolved {fmtDate(r.resolvedAt)}</p>
+            )}
+          </div>
+        );
+      })}
+      <Pager page={data.page} total={data.total} pageSize={data.pageSize} onPage={onPage} />
     </div>
   );
 }
