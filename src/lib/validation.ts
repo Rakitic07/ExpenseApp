@@ -47,8 +47,8 @@ export const findSpaceSchema = z
     passphrase: z.string().max(128).optional().or(z.literal("")),
   })
   .refine(
-    (d) => (!!d.query && d.query.trim().length >= 4) || (!!d.passphrase && d.passphrase.length >= 6),
-    { message: "Type at least 4 letters of the name, or your full passphrase." }
+    (d) => (!!d.query && d.query.trim().length >= 4) || (!!d.passphrase && d.passphrase.length >= 4),
+    { message: "Type at least 4 characters of the space name, or your full passphrase." }
   );
 
 // Self-service reset with the recovery code shown at signup.

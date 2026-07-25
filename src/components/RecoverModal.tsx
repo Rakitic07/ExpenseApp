@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   X,
@@ -61,6 +62,18 @@ export default function RecoverModal({ open, onClose }: { open: boolean; onClose
   const [findQuery, setFindQuery] = useState("");
   const [findPass, setFindPass] = useState("");
   const [findResults, setFindResults] = useState<string[] | null>(null);
+  // Portal target — avoids being trapped by AuthCard's animated (transformed)
+  // container, which otherwise breaks `position: fixed` on scroll.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const resultsRef = useRef<HTMLDivElement>(null);
+
+  // Reveal the found spaces once a search returns — they render below the button.
+  useEffect(() => {
+    if (findResults) {
+      resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [findResults]);
 
   useEffect(() => {
     if (!open) {
@@ -152,7 +165,9 @@ export default function RecoverModal({ open, onClose }: { open: boolean; onClose
     }
   }
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <AnimatePresence>
       {open && (
         <motion.div
@@ -236,15 +251,15 @@ export default function RecoverModal({ open, onClose }: { open: boolean; onClose
               <form onSubmit={submitFind} className="space-y-3">
                 <BackBtn onClick={back} />
                 <p className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/55">
-                  Type the first few letters of your space name (at least 4). Don&apos;t remember any of it? Enter your
-                  passphrase instead and we&apos;ll find the matching space.
+                  Type the first few characters of your space name (at least 4 — letters, numbers, anything). Don&apos;t
+                  remember any of it? Enter your full passphrase instead and we&apos;ll find the matching space.
                 </p>
-                <Field label="First letters of the name" value={findQuery} onChange={setFindQuery} placeholder="e.g. rakt (min 4)" />
+                <Field label="First characters of the name" value={findQuery} onChange={setFindQuery} placeholder="e.g. rakt (min 4)" />
                 <Field label="…or your passphrase" value={findPass} onChange={setFindPass} placeholder="your full passphrase" type="password" />
                 {error && <ErrorBox msg={error} />}
                 <SubmitBtn loading={loading} label="Search" />
                 {findResults && (
-                  <div className="space-y-1.5 pt-1">
+                  <div ref={resultsRef} className="space-y-1.5 pt-1">
                     {findResults.length === 0 ? (
                       <p className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/60">
                         No matching space found. Try different letters or your exact passphrase.
@@ -345,7 +360,8 @@ export default function RecoverModal({ open, onClose }: { open: boolean; onClose
           </div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }
 

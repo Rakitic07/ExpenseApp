@@ -26,7 +26,7 @@ export async function POST(req: Request) {
   const query = (parsed.data.query ?? "").trim().toLowerCase();
   const passphrase = parsed.data.passphrase ?? "";
   const usePrefix = query.length >= 4;
-  const usePass = passphrase.length >= 6;
+  const usePass = passphrase.length >= 4;
 
   const headers = { "Cache-Control": "no-store" };
 
