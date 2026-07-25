@@ -246,6 +246,7 @@ export async function POST(req: Request) {
                     r."resolvedAt" AS resolved_at,
                     l.name AS space_name,
                     l."createdAt" AS space_created,
+                    l."monthlyBudget" AS budget,
                     (l."recoveryHash" IS NOT NULL) AS has_recovery,
                     (SELECT COUNT(*) FROM "Expense" e WHERE e."ledgerId" = l.id)::int AS expense_count,
                     (SELECT COALESCE(SUM(amount), 0) FROM "Expense" e WHERE e."ledgerId" = l.id)::float AS total,
@@ -253,7 +254,11 @@ export async function POST(req: Request) {
                        SELECT title, amount, "paidBy" AS payer, date
                          FROM "Expense" e WHERE e."ledgerId" = l.id
                         ORDER BY e."createdAt" DESC LIMIT 5
-                     ) x) AS recent
+                     ) x) AS recent,
+                    -- Distinct values used to auto-score the owner's answers.
+                    (SELECT array_agg(p) FROM (SELECT DISTINCT lower("paidBy") p FROM "Expense" e WHERE e."ledgerId" = l.id LIMIT 200) s) AS payers,
+                    (SELECT array_agg(t) FROM (SELECT DISTINCT lower(title) t FROM "Expense" e WHERE e."ledgerId" = l.id LIMIT 300) s) AS titles,
+                    (SELECT array_agg(a) FROM (SELECT DISTINCT amount a FROM "Expense" e WHERE e."ledgerId" = l.id LIMIT 500) s) AS amounts
                FROM "ResetRequest" r
                JOIN "Ledger" l ON l.id = r."ledgerId"
               ORDER BY (r.status = 'pending') DESC, r."createdAt" DESC
@@ -275,8 +280,12 @@ export async function POST(req: Request) {
             hasRecovery: Boolean(r.has_recovery),
             expenseCount: Number(r.expense_count),
             total: Number(r.total),
+            budget: r.budget === null ? null : Number(r.budget),
             questionnaire: r.questionnaire as string,
             recent: (r.recent ?? []) as { title: string; amount: number; payer: string; date: string }[],
+            payers: (r.payers ?? []) as string[],
+            titles: (r.titles ?? []) as string[],
+            amounts: ((r.amounts ?? []) as (number | string)[]).map(Number),
           })),
         });
       }

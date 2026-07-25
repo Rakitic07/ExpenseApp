@@ -66,8 +66,12 @@ type ResetItem = {
   hasRecovery: boolean;
   expenseCount: number;
   total: number;
+  budget: number | null;
   questionnaire: string;
   recent: { title: string; amount: number; payer: string; date: string }[];
+  payers: string[];
+  titles: string[];
+  amounts: number[];
 };
 type Tab = "spaces" | "categories" | "payers" | "activity" | "resets";
 type Creds = { databaseUrl: string; authSecret: string };
@@ -769,6 +773,88 @@ const QLABELS: Record<string, string> = {
   note: "Extra note",
 };
 
+/** Extract the first number from a free-text answer, ignoring currency symbols/commas. */
+function numFrom(s: string): number | null {
+  const m = String(s).replace(/,/g, "").match(/-?\d+(\.\d+)?/);
+  return m ? Number(m[0]) : null;
+}
+
+type MatchVerdict = "complete" | "probable" | "none" | "na";
+type MatchResult = { matched: number; total: number; verdict: MatchVerdict; perField: Record<string, boolean> };
+
+/**
+ * Auto-scores the owner's questionnaire answers against the space's real data.
+ * Only scorable, answered fields count toward the total. "note" is never scored.
+ */
+function scoreMatch(answers: Record<string, string>, r: ResetItem): MatchResult {
+  const perField: Record<string, boolean> = {};
+  const created = r.spaceCreated ? new Date(r.spaceCreated) : null;
+  const createdTokens = created
+    ? [
+        String(created.getFullYear()),
+        created.toLocaleDateString("en-US", { month: "long" }).toLowerCase(),
+        created.toLocaleDateString("en-US", { month: "short" }).toLowerCase(),
+      ]
+    : [];
+
+  const check = (key: string, ok: boolean) => {
+    perField[key] = ok;
+  };
+
+  for (const [key, raw] of Object.entries(answers)) {
+    const v = String(raw ?? "").trim().toLowerCase();
+    if (!v || key === "note") continue;
+    switch (key) {
+      case "approxCreated":
+        check(key, createdTokens.some((t) => t && v.includes(t)));
+        break;
+      case "recentExpense":
+        check(key, r.titles.some((t) => t && (t.includes(v) || v.includes(t))));
+        break;
+      case "recentAmount": {
+        const n = numFrom(v);
+        check(key, n !== null && r.amounts.some((a) => Math.abs(a - n) < 0.01));
+        break;
+      }
+      case "payerName":
+        check(key, r.payers.some((p) => p && (p === v || p.includes(v) || v.includes(p))));
+        break;
+      case "budget": {
+        const n = numFrom(v);
+        check(key, n !== null && r.budget !== null && Math.abs(r.budget - n) < 0.5);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  const total = Object.keys(perField).length;
+  const matched = Object.values(perField).filter(Boolean).length;
+  let verdict: MatchVerdict;
+  if (total === 0) verdict = "na";
+  else if (matched === total) verdict = "complete";
+  else if (matched > 0) verdict = "probable";
+  else verdict = "none";
+  return { matched, total, verdict, perField };
+}
+
+function MatchBadge({ m }: { m: MatchResult }) {
+  const map: Record<MatchVerdict, { cls: string; label: string }> = {
+    complete: { cls: "border-[#38d9a9]/30 bg-[#38d9a9]/10 text-[#7be7c4]", label: "Complete match" },
+    probable: { cls: "border-[#ffd43b]/30 bg-[#ffd43b]/10 text-[#ffe08a]", label: "Probable match" },
+    none: { cls: "border-[#ff6b6b]/30 bg-[#ff6b6b]/10 text-[#ffb3b3]", label: "No match" },
+    na: { cls: "border-white/15 bg-white/5 text-white/50", label: "Unverifiable" },
+  };
+  const s = map[m.verdict];
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${s.cls}`}>
+      {s.label}
+      {m.total > 0 && <span className="opacity-70">· {m.matched}/{m.total}</span>}
+    </span>
+  );
+}
+
 function ResetsTab({
   data,
   onPage,
@@ -796,12 +882,14 @@ function ResetsTab({
           /* ignore malformed */
         }
         const answered = Object.entries(answers).filter(([, v]) => v && String(v).trim());
+        const match = scoreMatch(answers, r);
         return (
           <div key={r.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="font-semibold">{r.spaceName}</span>
                 <StatusBadge status={r.status} />
+                <MatchBadge m={match} />
               </div>
               <span className="text-xs text-white/45">{fmtDate(r.requestedAt)}</span>
             </div>
@@ -812,12 +900,24 @@ function ResetsTab({
                 <p className="mb-2 text-[11px] uppercase tracking-wide text-white/45">Owner&apos;s answers</p>
                 {answered.length ? (
                   <ul className="space-y-1 text-sm">
-                    {answered.map(([k, v]) => (
-                      <li key={k} className="flex justify-between gap-3">
-                        <span className="text-white/50">{QLABELS[k] ?? k}</span>
-                        <span className="text-right text-white/85">{v}</span>
-                      </li>
-                    ))}
+                    {answered.map(([k, v]) => {
+                      const scored = k in match.perField;
+                      const ok = match.perField[k];
+                      return (
+                        <li key={k} className="flex justify-between gap-3">
+                          <span className="flex items-center gap-1 text-white/50">
+                            {scored &&
+                              (ok ? (
+                                <CheckCircle2 className="h-3 w-3 shrink-0 text-[#7be7c4]" />
+                              ) : (
+                                <XCircle className="h-3 w-3 shrink-0 text-[#ffb3b3]" />
+                              ))}
+                            {QLABELS[k] ?? k}
+                          </span>
+                          <span className="text-right text-white/85">{v}</span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 ) : (
                   <p className="text-sm text-white/40">No answers provided.</p>
@@ -838,6 +938,12 @@ function ResetsTab({
                       {r.expenseCount} · {nf(r.total)}
                     </span>
                   </li>
+                  {r.budget !== null && (
+                    <li className="flex justify-between gap-3">
+                      <span className="text-white/50">Monthly budget</span>
+                      <span className="text-white/85">{nf(r.budget)}</span>
+                    </li>
+                  )}
                 </ul>
                 {r.recent.length > 0 && (
                   <div className="mt-2 border-t border-white/10 pt-2">
