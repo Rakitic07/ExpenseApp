@@ -279,7 +279,15 @@ export default function AdminDashboard({
                         'DATABASE_URL="postgresql://user:pass@host/db?sslmode=require"\nAUTH_SECRET="your-long-random-secret"'
                       }
                       className="glass-input resize-y font-mono text-xs leading-relaxed"
-                      style={{ filter: showSecrets ? "none" : "blur(4px)" }}
+                      // Mask each character as a dot (keeps the caret crisp and
+                      // visible, unlike a blur filter). Falls back to plain text
+                      // where -webkit-text-security is unsupported (e.g. Firefox),
+                      // which is fine given the explicit Show/Hide toggle.
+                      style={
+                        {
+                          WebkitTextSecurity: showSecrets ? "none" : "disc",
+                        } as React.CSSProperties
+                      }
                       required
                     />
                     <span className="mt-1 block text-[11px] text-white/40">
