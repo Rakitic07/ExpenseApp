@@ -27,6 +27,7 @@ import {
   XCircle,
   Clock,
 } from "lucide-react";
+import { apiFetch } from "@/lib/http";
 
 /* ---------- types ---------- */
 
@@ -166,7 +167,7 @@ export default function AdminDashboard({ open, onClose }: { open: boolean; onClo
     section: string,
     extra: Record<string, unknown> = {}
   ) {
-    const res = await fetch("/api/admin/stats", {
+    const res = await apiFetch("/api/admin/stats", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
@@ -241,7 +242,7 @@ export default function AdminDashboard({ open, onClose }: { open: boolean; onClo
     setTabLoading(true);
     setTabError(null);
     try {
-      const res = await fetch("/api/admin/reset", {
+      const res = await apiFetch("/api/admin/reset", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",

@@ -1,5 +1,9 @@
 import type { MetadataRoute } from "next";
 
+// Emit as a static file so it's included in the `output: export` native bundle
+// (and served straight from Vercel's CDN on the web). It's fully static anyway.
+export const dynamic = "force-static";
+
 // Web App Manifest — makes Spendly-Plus installable on Android/iOS home screens
 // as a PWA. Next.js serves this at /manifest.webmanifest automatically.
 export default function manifest(): MetadataRoute.Manifest {

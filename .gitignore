@@ -7,6 +7,9 @@
 /.next/
 /out/
 
+# native static bundle build scratch (server files stashed during export)
+/.native-build-bak/
+
 # production
 /build
 
@@ -34,6 +37,11 @@ next-env.d.ts
 /prisma/*.db
 /prisma/*.db-journal
 /prisma/*.db-wal
+
+# android/ios binaries — these ship as GitHub Release assets, never in code
+*.apk
+*.aab
+*.ipa
 
 # capacitor native build artifacts
 /android/app/build/

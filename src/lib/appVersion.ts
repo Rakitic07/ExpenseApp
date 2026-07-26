@@ -12,10 +12,16 @@ export type AndroidRelease = {
   versionCode: number;
   versionName: string;
   url: string;
+  // sha256 of the latest APK asset (e.g. "sha256:..."), or a fallback token that
+  // still changes on every re-upload. The app remembers the digest it installed
+  // and offers an update whenever this differs — works even when re-uploading to
+  // a single fixed tag like "latest".
+  assetSha: string;
 };
 
 export const ANDROID_RELEASE: AndroidRelease = {
   versionCode: 1,
   versionName: "1.0",
   url: `https://github.com/${GITHUB_REPO}/releases/latest/download/${APK_ASSET_NAME}`,
+  assetSha: "",
 };

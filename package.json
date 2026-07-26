@@ -7,6 +7,7 @@
     "predev": "prisma generate --schema prisma/schema.sqlite.prisma",
     "dev": "next dev",
     "build": "prisma generate && next build",
+    "build:native": "node scripts/build-native.mjs",
     "start": "next start",
     "lint": "eslint .",
     "postinstall": "prisma generate",

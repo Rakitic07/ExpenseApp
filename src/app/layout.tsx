@@ -37,6 +37,20 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        {/*
+         * Tag <html> with `native` as early as possible (before first paint) when
+         * running inside the Capacitor shell, so the native-only CSS (no expensive
+         * backdrop-blur) applies immediately with no glass→solid flash. Capacitor
+         * injects window.Capacitor before page scripts run, so this is synchronous.
+         */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{var c=window.Capacitor;if(c&&(c.isNativePlatform?c.isNativePlatform():c.isNative)){document.documentElement.classList.add('native')}}catch(e){}",
+          }}
+        />
+      </head>
       <body>
         {children}
         <ServiceWorkerRegister />

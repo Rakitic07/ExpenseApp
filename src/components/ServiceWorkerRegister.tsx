@@ -1,12 +1,25 @@
 "use client";
 
 import { useEffect } from "react";
+import { isNativeApp } from "@/lib/platform";
 
 // Registers the PWA service worker on the client. Kept tiny and side-effect
 // only so it can sit at the root layout without affecting server rendering.
 export default function ServiceWorkerRegister() {
   useEffect(() => {
     if (typeof window === "undefined") return;
+
+    // Fallback in case the inline head script ran before window.Capacitor was
+    // ready: ensure the `native` class (which disables costly WebView blur) is
+    // present when running inside the packaged app.
+    if (isNativeApp()) {
+      document.documentElement.classList.add("native");
+      // The native app's UI is bundled in the APK (local files) and updated via
+      // a new binary — a service worker would only add a stale-cache layer on
+      // top of already-local assets, so skip it entirely inside the app.
+      return;
+    }
+
     if (!("serviceWorker" in navigator)) return;
 
     // During dev the SW must NOT be active: a worker left over from a previous

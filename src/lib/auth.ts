@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
 import { prisma } from "./prisma";
 
@@ -20,7 +20,10 @@ export type SessionPayload = {
   name: string;
 };
 
-export async function createSession(payload: SessionPayload): Promise<void> {
+// Creates the signed session JWT, stores it in the HttpOnly cookie (for the web
+// app) AND returns it so token-based clients (the native app, which can't share
+// a cross-site cookie) can persist and send it via the Authorization header.
+export async function createSession(payload: SessionPayload): Promise<string> {
   const token = await new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -35,11 +38,23 @@ export async function createSession(payload: SessionPayload): Promise<void> {
     path: "/",
     maxAge: MAX_AGE_SECONDS,
   });
+
+  return token;
 }
 
 export async function getSession(): Promise<SessionPayload | null> {
+  // Accept the token from either the HttpOnly cookie (web) or an
+  // `Authorization: Bearer <jwt>` header (native app). Both carry the exact
+  // same signed JWT, so verification is identical.
+  const hdrs = await headers();
+  const authz = hdrs.get("authorization");
+  const bearer =
+    authz && authz.toLowerCase().startsWith("bearer ")
+      ? authz.slice(7).trim()
+      : null;
+
   const store = await cookies();
-  const token = store.get(COOKIE_NAME)?.value;
+  const token = bearer || store.get(COOKIE_NAME)?.value;
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, getSecret());

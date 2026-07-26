@@ -80,6 +80,31 @@ public class AppUpdaterPlugin extends Plugin {
         }
     }
 
+    /**
+     * Deletes any downloaded update APKs from the app's private "updates" dir.
+     * Called on launch: if the app is running, a previously downloaded update has
+     * already been installed (or abandoned), so the binary is safe to remove.
+     */
+    @PluginMethod
+    public void cleanup(PluginCall call) {
+        int deleted = 0;
+        try {
+            File dir = getContext().getExternalFilesDir("updates");
+            if (dir != null && dir.exists()) {
+                File[] files = dir.listFiles();
+                if (files != null) {
+                    for (File f : files) {
+                        if (f.delete()) deleted++;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        JSObject ret = new JSObject();
+        ret.put("deleted", deleted);
+        call.resolve(ret);
+    }
+
     @PluginMethod
     public void downloadAndInstall(final PluginCall call) {
         final String urlStr = call.getString("url");

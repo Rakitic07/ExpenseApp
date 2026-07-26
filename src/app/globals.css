@@ -26,8 +26,12 @@ body {
    *  - a faint inset ring seals the border
    *  - a dark inset shadow along the bottom gives the pane thickness
    */
+  /* Desktop blur is kept a touch lighter (md/lg/sm instead of lg/xl/md) so each
+     frame stays cheap enough to sustain a 90/120Hz display — backdrop-filter is
+     re-sampled every scroll frame, so a smaller radius directly buys more fps.
+     Phones/native drop it entirely (see media queries below). */
   .glass {
-    @apply relative border border-white/15 bg-white/[0.08] backdrop-blur-lg;
+    @apply relative border border-white/15 bg-white/[0.08] backdrop-blur-md;
     background-image: linear-gradient(
       160deg,
       rgba(255, 255, 255, 0.2) 0%,
@@ -43,7 +47,7 @@ body {
   }
 
   .glass-strong {
-    @apply relative border border-white/20 bg-white/[0.12] backdrop-blur-xl;
+    @apply relative border border-white/20 bg-white/[0.12] backdrop-blur-lg;
     background-image: linear-gradient(
       160deg,
       rgba(255, 255, 255, 0.28) 0%,
@@ -60,7 +64,7 @@ body {
 
   .glass-input {
     @apply w-full rounded-2xl border border-white/15 px-4 py-3 text-white
-      placeholder-white/40 outline-none backdrop-blur-md transition
+      placeholder-white/40 outline-none backdrop-blur-sm transition
       focus:border-white/40 focus:ring-2 focus:ring-white/25;
     background-image: linear-gradient(
       160deg,
@@ -74,7 +78,7 @@ body {
 
   .glass-btn {
     @apply inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20
-      px-5 py-3 font-medium text-white backdrop-blur-md transition
+      px-5 py-3 font-medium text-white backdrop-blur-sm transition
       hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98]
       disabled:cursor-not-allowed disabled:opacity-50;
     background-image: linear-gradient(
@@ -106,7 +110,7 @@ body {
 
   .pill {
     @apply inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1
-      text-xs font-medium backdrop-blur-md;
+      text-xs font-medium backdrop-blur-sm;
     background-image: linear-gradient(
       160deg,
       rgba(255, 255, 255, 0.18),
@@ -139,10 +143,13 @@ body {
 }
 
 /*
- * Phones: heavy backdrop blur is the main source of jank because every glass
- * panel re-rasterizes while scrolling. Cap it to a cheap radius and lean on a
- * slightly more opaque background so panels still read as "glass" but stay
- * buttery smooth.
+ * Phones (browser + PWA + native): `backdrop-filter: blur()` is the #1 cause of
+ * scroll jank — every glass panel must re-sample and re-rasterize the content
+ * behind it on EVERY scroll frame, which is brutal on mobile GPUs regardless of
+ * how much RAM the phone has (this is a compositing cost, not a memory one).
+ * So on phones we drop the live blur entirely and paint solid, slightly
+ * translucent panels + a single cheap shadow. Looks essentially identical on a
+ * small screen but scrolls at a smooth 60fps. Desktop keeps the full glass.
  */
 @media (max-width: 640px) {
   .glass,
@@ -150,15 +157,98 @@ body {
   .glass-input,
   .glass-btn,
   .pill {
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
   }
   .glass {
-    background-color: rgba(16, 18, 36, 0.55);
+    background-image: none;
+    background-color: rgba(18, 20, 40, 0.9);
+    box-shadow:
+      0 8px 20px -12px rgba(0, 0, 0, 0.6),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.07);
   }
   .glass-strong {
-    background-color: rgba(16, 18, 36, 0.68);
+    background-image: none;
+    background-color: rgba(22, 24, 46, 0.95);
+    box-shadow:
+      0 12px 26px -14px rgba(0, 0, 0, 0.7),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
   }
+  .glass-input {
+    background-image: none;
+    background-color: rgba(255, 255, 255, 0.06);
+    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
+  }
+  .glass-btn {
+    background-image: none;
+    background-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 6px 14px -10px rgba(0, 0, 0, 0.6);
+  }
+  .pill {
+    background-image: none;
+    background-color: rgba(255, 255, 255, 0.08);
+    box-shadow: none;
+  }
+  /* The huge blurred colour blobs are large offscreen buffers the compositor
+     juggles on every frame. Hide them on phones — the base radial gradient
+     already carries the mood — for a big scroll-smoothness win. */
+  .bg-blob {
+    display: none;
+  }
+}
+
+/*
+ * NATIVE APP (Capacitor WebView) — performance overrides.
+ *
+ * The Android System WebView rasterizes `backdrop-filter: blur()` far more
+ * expensively than Chrome; with this many stacked glass panels it's the single
+ * biggest cause of scroll/tap jank (why the app feels slower than the browser).
+ * Inside the packaged app we drop the live blur entirely and paint solid,
+ * slightly-translucent panels instead — visually near-identical on a phone but
+ * dramatically smoother — and trim the multi-layer shadows to one cheap shadow.
+ * The `native` class is added to <html> only when running inside the app.
+ */
+html.native .glass,
+html.native .glass-strong,
+html.native .glass-input,
+html.native .glass-btn,
+html.native .pill {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+html.native .glass {
+  background-image: none;
+  background-color: rgba(18, 20, 40, 0.92);
+  box-shadow:
+    0 8px 20px -12px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.07);
+}
+html.native .glass-strong {
+  background-image: none;
+  background-color: rgba(22, 24, 46, 0.96);
+  box-shadow:
+    0 12px 26px -14px rgba(0, 0, 0, 0.7),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+}
+html.native .glass-input {
+  background-image: none;
+  background-color: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
+}
+html.native .glass-btn {
+  background-image: none;
+  background-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 6px 14px -10px rgba(0, 0, 0, 0.6);
+}
+html.native .pill {
+  background-image: none;
+  background-color: rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+/* The decorative background blobs are hidden behind opaque native panels anyway;
+   dropping their big blur textures saves memory and compositing work. */
+html.native .bg-blob {
+  display: none;
 }
 
 /*
@@ -198,6 +288,30 @@ body {
   .cats-collapsed .cat-extra {
     display: none;
   }
+}
+
+/*
+ * Belt-and-braces: kill EVERY `backdrop-filter` on phones and in the native
+ * app, not just the .glass classes. Raw Tailwind `backdrop-blur-*` utilities
+ * are used directly on <select>s, the date picker, the header and the bottom
+ * nav — each one forces the compositor to re-sample and re-rasterize the pixels
+ * behind it on every scroll frame, which is the remaining source of scroll/tap
+ * jank in the WebView. Dropping the live blur (the panels stay solid/translucent
+ * from the rules above) is what makes scrolling actually smooth.
+ */
+@media (max-width: 640px) {
+  *,
+  *::before,
+  *::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+html.native *,
+html.native *::before,
+html.native *::after {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 /* Respect users who prefer less motion: kill long/looping animations. */

@@ -1,4 +1,6 @@
 import type { Expense, ExpenseDraft } from "./types";
+import { apiFetch, setToken } from "./http";
+import { isNativeApp } from "./platform";
 
 async function handle<T>(res: Response): Promise<T> {
   const data = await res.json().catch(() => ({}));
@@ -8,15 +10,22 @@ async function handle<T>(res: Response): Promise<T> {
   return data as T;
 }
 
+// After a successful auth call the server includes the session JWT. Only the
+// native app persists it (Bearer auth); the web app ignores it and keeps using
+// the HttpOnly cookie.
+function rememberToken(token?: string) {
+  if (isNativeApp() && token) setToken(token);
+}
+
 export const api = {
   async me() {
-    const res = await fetch("/api/auth/me", { cache: "no-store" });
+    const res = await apiFetch("/api/auth/me", { cache: "no-store" });
     return handle<{ authenticated: boolean; name?: string }>(res);
   },
 
   // Auth state + budget + expenses in a single round trip (used on app startup).
   async bootstrap() {
-    const res = await fetch("/api/bootstrap", { cache: "no-store" });
+    const res = await apiFetch("/api/bootstrap", { cache: "no-store" });
     return handle<{
       authenticated: boolean;
       name?: string;
@@ -26,12 +35,12 @@ export const api = {
   },
 
   async getBudget() {
-    const res = await fetch("/api/budget", { cache: "no-store" });
+    const res = await apiFetch("/api/budget", { cache: "no-store" });
     return handle<{ budget: number | null }>(res);
   },
 
   async setBudget(budget: number | null) {
-    const res = await fetch("/api/budget", {
+    const res = await apiFetch("/api/budget", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ budget }),
@@ -40,18 +49,24 @@ export const api = {
   },
 
   async register(name: string, passphrase: string) {
-    const res = await fetch("/api/auth/register", {
+    const res = await apiFetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, passphrase }),
     });
-    return handle<{ name: string; recoveryCode: string }>(res);
+    const data = await handle<{
+      name: string;
+      recoveryCode: string;
+      token?: string;
+    }>(res);
+    rememberToken(data.token);
+    return data;
   },
 
   // Self-service reset using the recovery code shown at signup. Returns a fresh
   // recovery code (the old one is single-use).
   async recover(name: string, recoveryCode: string, passphrase: string) {
-    const res = await fetch("/api/auth/recover", {
+    const res = await apiFetch("/api/auth/recover", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, recoveryCode, passphrase }),
@@ -65,7 +80,7 @@ export const api = {
     passphrase: string,
     questionnaire: Record<string, string>
   ) {
-    const res = await fetch("/api/auth/reset-request", {
+    const res = await apiFetch("/api/auth/reset-request", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, passphrase, questionnaire }),
@@ -75,7 +90,7 @@ export const api = {
 
   // "Find my space" helper: search by name prefix (>=4 chars) and/or passphrase.
   async findSpace(query: string, passphrase?: string) {
-    const res = await fetch("/api/auth/find-space", {
+    const res = await apiFetch("/api/auth/find-space", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query, passphrase }),
@@ -84,7 +99,7 @@ export const api = {
   },
 
   async resetStatus(name: string, ticket: string) {
-    const res = await fetch("/api/auth/reset-status", {
+    const res = await apiFetch("/api/auth/reset-status", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, ticket }),
@@ -93,25 +108,33 @@ export const api = {
   },
 
   async login(name: string, passphrase: string) {
-    const res = await fetch("/api/auth/login", {
+    const res = await apiFetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, passphrase }),
     });
-    return handle<{ name: string }>(res);
+    const data = await handle<{ name: string; token?: string }>(res);
+    rememberToken(data.token);
+    return data;
   },
 
   async logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
+    try {
+      await apiFetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      // Native: drop the stored Bearer token so logout is deterministic (no
+      // reliance on the WebView flushing a cleared cookie).
+      setToken(null);
+    }
   },
 
   async listExpenses() {
-    const res = await fetch("/api/expenses", { cache: "no-store" });
+    const res = await apiFetch("/api/expenses", { cache: "no-store" });
     return handle<{ expenses: Expense[] }>(res);
   },
 
   async createExpense(draft: ExpenseDraft) {
-    const res = await fetch("/api/expenses", {
+    const res = await apiFetch("/api/expenses", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(draft),
@@ -120,7 +143,7 @@ export const api = {
   },
 
   async updateExpense(id: string, draft: ExpenseDraft) {
-    const res = await fetch(`/api/expenses/${id}`, {
+    const res = await apiFetch(`/api/expenses/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(draft),
@@ -129,7 +152,7 @@ export const api = {
   },
 
   async deleteExpense(id: string) {
-    const res = await fetch(`/api/expenses/${id}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/expenses/${id}`, { method: "DELETE" });
     return handle<{ ok: boolean }>(res);
   },
 };

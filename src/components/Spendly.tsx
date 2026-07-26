@@ -32,6 +32,8 @@ import CurrencySelect from "./CurrencySelect";
 import SyncButton from "./SyncButton";
 import AdminDashboard from "./AdminDashboard";
 import UpdatePrompt from "./UpdatePrompt";
+import UpdateDebugBadge from "./UpdateDebugBadge";
+import CheckUpdatesButton from "./CheckUpdatesButton";
 
 type Status = "loading" | "guest" | "authed";
 
@@ -119,6 +121,23 @@ export default function Spendly() {
   );
 
   useEffect(() => {
+    // 1) INSTANT PAINT from the local cache. We never block the first frame on
+    //    the network: if the last space has cached data, render it immediately
+    //    so the app opens like a flash. The background reconcile below then
+    //    quietly corrects anything that changed on the server.
+    const last = getLastSpace();
+    const hasLocal =
+      !!last &&
+      (readCache(last).length > 0 || pendingCount(last) > 0 || isBudgetDirty(last));
+    if (last && hasLocal) {
+      setName(last);
+      setStatus("authed");
+      setExpenses(readCache(last));
+      setBudget(readBudget(last));
+      setPending(pendingCount(last));
+    }
+
+    // 2) RECONCILE with the server in the background (auth check + fresh data).
     (async () => {
       try {
         // Single startup call: auth state + expenses in one round trip.
@@ -128,8 +147,10 @@ export default function Spendly() {
           setName(space);
           setStatus("authed");
           rememberSpace(space);
-          const cached = readCache(space);
-          if (cached.length) setExpenses(cached);
+          if (!hasLocal) {
+            const cached = readCache(space);
+            if (cached.length) setExpenses(cached);
+          }
           const pend = pendingCount(space);
           setPending(pend);
 
@@ -161,22 +182,36 @@ export default function Spendly() {
             setExpenses(boot.expenses);
             writeCache(space, boot.expenses);
           }
+        } else if (!hasLocal) {
+          // Genuinely logged out with nothing cached → show the landing screen.
+          setStatus("guest");
         } else {
+          // We optimistically showed a cached space, but the server says the
+          // session has ended. Drop to the auth screen.
+          forgetSpace();
+          setExpenses([]);
+          setBudget(null);
+          setName("");
+          setPending(0);
           setStatus("guest");
         }
       } catch {
-        // Offline (or server unreachable): fall back to the last space's cache
-        // so the app is still usable without a connection.
-        const last = getLastSpace();
-        if (last && readCache(last).length) {
+        // Offline / server unreachable. Keep the optimistic cache if we already
+        // painted one; otherwise try the last space's cache before giving up.
+        if (hasLocal) {
           setOnline(false);
-          setName(last);
-          setStatus("authed");
-          setExpenses(readCache(last));
-          setBudget(readBudget(last));
-          setPending(pendingCount(last));
         } else {
-          setStatus("guest");
+          const l = getLastSpace();
+          if (l && readCache(l).length) {
+            setOnline(false);
+            setName(l);
+            setStatus("authed");
+            setExpenses(readCache(l));
+            setBudget(readBudget(l));
+            setPending(pendingCount(l));
+          } else {
+            setStatus("guest");
+          }
         }
       }
     })();
@@ -473,6 +508,8 @@ export default function Spendly() {
               <span>Android app</span>
             </a>
           )}
+          {/* Native app only: manual SHA-based update check (download+install). */}
+          {isNative && <CheckUpdatesButton />}
           <button
             type="button"
             onClick={() => setAdminOpen(true)}
@@ -539,6 +576,8 @@ export default function Spendly() {
 
       {/* In-app updater (native app only): refresh web / install new APK. */}
       <UpdatePrompt />
+      {/* Native-only: brief "installed vs latest APK sha" badge on launch. */}
+      <UpdateDebugBadge />
 
       <AdminDashboard open={adminOpen} onClose={() => setAdminOpen(false)} />
     </main>

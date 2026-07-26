@@ -1,35 +1,39 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
 /**
- * Spendly-Plus ships as a real native app via Capacitor, but the app itself is a
- * Next.js server app (API routes + cookie sessions). Rather than trying to bundle
- * a backend into the binary, the native shell simply loads your deployed site over
- * HTTPS — so the APK/IPA always runs the exact same code as the web app, and
- * updates ship the moment you deploy to Vercel (no store re-submission needed).
+ * Spendly-Plus native app.
  *
- * Point it at your deployment by setting CAP_SERVER_URL before syncing, e.g.:
- *   CAP_SERVER_URL="https://your-app.vercel.app" npm run cap:sync
+ * The UI is BUNDLED inside the app (webDir = `out`, produced by
+ * `npm run build:native`), so it launches instantly from local files with no
+ * network round-trip for the shell — this is what makes the app feel native and
+ * fast. Only data calls go to the deployed backend (baked in at build time via
+ * NEXT_PUBLIC_API_BASE), authenticated with a Bearer token.
  *
- * If CAP_SERVER_URL is not set, the shell falls back to the bundled offline splash
- * in `native/www` which just tells you to configure the URL.
+ * IMPORTANT (performance): CapacitorHttp is deliberately DISABLED. When enabled
+ * it patches window.fetch/XHR to tunnel every request through the native Java
+ * bridge, and each response is serialized back to JS on the WebView's MAIN
+ * thread. That main-thread work lands exactly when the app is starting up or
+ * syncing — i.e. while the user is scrolling/tapping — which is why the native
+ * app felt janky while the phone browser (which uses the engine's own
+ * off-thread networking) was smooth. Instead the WebView makes normal fetches
+ * straight to the backend; cross-origin is handled by CORS (see src/middleware.ts,
+ * which allow-lists the Capacitor local origins) and auth is Bearer-token based
+ * (see src/lib/http.ts, credentials omitted), so no cookies/CORS-credentials.
  */
-const serverUrl = process.env.CAP_SERVER_URL?.trim();
-
 const config: CapacitorConfig = {
   appId: "app.spendlyplus.mobile",
   appName: "Spendly-Plus",
-  webDir: "native/www",
-  server: serverUrl
-    ? {
-        url: serverUrl,
-        androidScheme: "https",
-        // Only the deployed origin may be navigated to inside the shell.
-        allowNavigation: [new URL(serverUrl).host],
-      }
-    : {
-        androidScheme: "https",
-      },
+  webDir: "out",
   backgroundColor: "#0b0b16",
+  android: {
+    // Local bundle is served from https://localhost.
+    webContentsDebuggingEnabled: false,
+  },
+  plugins: {
+    CapacitorHttp: {
+      enabled: false,
+    },
+  },
 };
 
 export default config;

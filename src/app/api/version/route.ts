@@ -9,25 +9,44 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type GithubAsset = { name: string; browser_download_url: string };
+type GithubAsset = {
+  name: string;
+  browser_download_url: string;
+  // sha256 of the uploaded file, e.g. "sha256:c4f2764...". Present on newer
+  // uploads; when absent we fall back to fields that still change on re-upload.
+  digest?: string | null;
+  updated_at?: string;
+  id?: number;
+};
 type GithubRelease = {
   tag_name?: string;
   name?: string;
   assets?: GithubAsset[];
 };
 
-// Turn a release tag into an integer versionCode to compare against the app's
-// own versionCode (from android/app/build.gradle). Tag the release "v<N>" where
-// N matches that versionCode (e.g. v2). Falls back to null if it can't parse.
-function tagToVersionCode(tag?: string): number | null {
-  if (!tag) return null;
+// Optional versionCode hint if the tag looks like "v<N>". Not required — the
+// app detects updates by the APK's sha256 (see `assetSha`), so a fixed tag like
+// "latest" that gets re-uploaded still works.
+function tagToVersionCode(tag?: string): number {
+  if (!tag) return 0;
   const m = /^v?(\d+)$/.exec(tag.trim());
-  return m ? Number(m[1]) : null;
+  return m ? Number(m[1]) : 0;
 }
 
-// Reads the latest GitHub release so publishing a release (with a bumped "v<N>"
-// tag and the APK attached) is all that's needed to push an app update — no web
-// redeploy required. Cached briefly to stay well under GitHub's rate limit.
+// A value that changes whenever a NEW APK is uploaded — even to the same tag.
+// Prefer the real sha256 digest; fall back to the asset's updated timestamp /
+// id, both of which change on every re-upload (GitHub replaces the asset).
+function assetFingerprint(asset?: GithubAsset): string {
+  if (!asset) return "";
+  if (asset.digest) return asset.digest.toLowerCase();
+  if (asset.updated_at) return `u:${asset.updated_at}`;
+  if (asset.id != null) return `id:${asset.id}`;
+  return "";
+}
+
+// Reads the latest GitHub release. Publishing (or just re-uploading the APK to
+// the existing release) is all that's needed to ship an update — no web
+// redeploy. Cached briefly to stay well under GitHub's rate limit.
 async function latestAndroidFromGithub(): Promise<AndroidRelease | null> {
   try {
     const res = await fetch(
@@ -44,30 +63,26 @@ async function latestAndroidFromGithub(): Promise<AndroidRelease | null> {
     if (!res.ok) return null;
 
     const rel = (await res.json()) as GithubRelease;
-    const versionCode = tagToVersionCode(rel.tag_name);
-    if (versionCode == null) return null;
-
     const asset = rel.assets?.find((a) => a.name === APK_ASSET_NAME);
     const url =
       asset?.browser_download_url ??
       `https://github.com/${GITHUB_REPO}/releases/latest/download/${APK_ASSET_NAME}`;
 
     return {
-      versionCode,
-      versionName: rel.name?.trim() || rel.tag_name || String(versionCode),
+      versionCode: tagToVersionCode(rel.tag_name),
+      versionName: rel.name?.trim() || rel.tag_name || "latest",
       url,
+      assetSha: assetFingerprint(asset),
     };
   } catch {
     return null;
   }
 }
 
-// Version endpoint used by the client to detect updates:
-//   - `web`: a per-deploy build id. When it changes, the running (cached) web
-//     shell is stale and the app offers a one-tap refresh.
-//   - `android`: the latest published APK (read live from GitHub Releases, with
-//     the bundled constant as an offline fallback). The native app compares its
-//     own versionCode against this to offer an in-app binary update.
+// Version endpoint the native app polls to detect updates. `android.assetSha`
+// is the sha256 of the latest APK on GitHub Releases; the app remembers the
+// digest it last installed and offers an in-app update whenever this differs —
+// so re-uploading a new binary to the same tag ("latest") is enough to ship it.
 export async function GET() {
   const web =
     process.env.VERCEL_GIT_COMMIT_SHA ||

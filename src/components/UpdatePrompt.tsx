@@ -1,77 +1,53 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowUpCircle, RefreshCw, Loader2, X } from "lucide-react";
+import { ArrowUpCircle, Loader2, X } from "lucide-react";
 import { isNativeApp } from "@/lib/platform";
-
-type VersionResponse = {
-  web: string;
-  android: { versionCode: number; versionName: string; url: string };
-};
-
-type AppUpdaterPlugin = {
-  getInfo(): Promise<{ versionCode: number; versionName: string }>;
-  downloadAndInstall(opts: { url: string }): Promise<{ status: string }>;
-};
-
-function updaterPlugin(): AppUpdaterPlugin | undefined {
-  if (typeof window === "undefined") return undefined;
-  const cap = (window as unknown as { Capacitor?: { Plugins?: Record<string, unknown> } }).Capacitor;
-  return cap?.Plugins?.AppUpdater as AppUpdaterPlugin | undefined;
-}
+import {
+  fetchLatest,
+  hasUpdate,
+  installUpdate,
+  markInstalled,
+  cleanupDownloads,
+} from "@/lib/appUpdate";
 
 const POLL_MS = 5 * 60 * 1000; // re-check every 5 minutes and on resume
 
-// Shown only inside the native app. Detects two kinds of updates:
-//   • a new APK binary  → one-tap "Update" (downloads + opens the installer)
-//   • a new web build   → one-tap "Refresh" (reloads the shell instantly)
+// Automatic update banner, shown only inside the native app. Detection is based
+// on the APK's sha256 (see lib/appUpdate): when the latest GitHub release's APK
+// digest differs from the one this app installed, it offers a one-tap download +
+// install. The manual "Check for updates" button uses the same logic.
 export default function UpdatePrompt() {
-  const [apk, setApk] = useState<{ versionName: string; url: string } | null>(null);
-  const [webStale, setWebStale] = useState(false);
+  const [apk, setApk] = useState<{
+    versionName: string;
+    url: string;
+    assetSha: string;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
 
-  const initialWeb = useRef<string | null>(null);
-  const currentCode = useRef<number | null>(null);
-
   const check = useCallback(async () => {
-    try {
-      const res = await fetch("/api/version", { cache: "no-store" });
-      if (!res.ok) return;
-      const data: VersionResponse = await res.json();
-
-      if (initialWeb.current == null) initialWeb.current = data.web;
-      else if (data.web !== initialWeb.current) setWebStale(true);
-
-      if (currentCode.current != null && data.android.versionCode > currentCode.current) {
-        setApk({ versionName: data.android.versionName, url: data.android.url });
-      }
-    } catch {
-      /* offline / transient — ignore */
+    const latest = await fetchLatest();
+    if (hasUpdate(latest) && latest) {
+      setApk({
+        versionName: latest.versionName,
+        url: latest.url,
+        assetSha: latest.assetSha,
+      });
     }
   }, []);
 
   useEffect(() => {
     if (!isNativeApp()) return;
-    const plugin = updaterPlugin();
-    if (!plugin) return;
 
-    let timer: ReturnType<typeof setInterval> | undefined;
-    let cancelled = false;
+    // A previously downloaded update APK is now installed (we're running) — or
+    // was abandoned. Either way delete the leftover binary from storage.
+    void cleanupDownloads();
 
-    (async () => {
-      try {
-        const info = await plugin.getInfo();
-        if (cancelled) return;
-        currentCode.current = Number(info.versionCode);
-      } catch {
-        currentCode.current = 0;
-      }
-      await check();
-      timer = setInterval(check, POLL_MS);
-    })();
+    void check();
+    const timer = setInterval(check, POLL_MS);
 
     const onVisible = () => {
       if (document.visibilityState === "visible") void check();
@@ -80,25 +56,25 @@ export default function UpdatePrompt() {
     window.addEventListener("focus", onVisible);
 
     return () => {
-      cancelled = true;
-      if (timer) clearInterval(timer);
+      clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
     };
   }, [check]);
 
   const runApkUpdate = useCallback(async () => {
-    const plugin = updaterPlugin();
-    if (!plugin || !apk) return;
+    if (!apk) return;
     setBusy(true);
     setNote("Downloading update…");
     try {
-      const result = await plugin.downloadAndInstall({ url: apk.url });
+      const result = await installUpdate(apk.url);
       if (result?.status === "permission_required") {
         setNote("Allow “Install unknown apps”, then tap Update again.");
         setBusy(false);
         return;
       }
+      // Installer launched — remember this digest so we don't re-prompt for it.
+      markInstalled(apk.assetSha);
       setNote("Opening installer…");
     } catch {
       setNote("Update failed. Please try again.");
@@ -106,10 +82,8 @@ export default function UpdatePrompt() {
     }
   }, [apk]);
 
-  const show = !dismissed && (apk != null || webStale);
+  const show = !dismissed && apk != null;
   if (!show) return null;
-
-  const isApk = apk != null;
 
   return (
     <AnimatePresence>
@@ -122,28 +96,20 @@ export default function UpdatePrompt() {
       >
         <div className="glass-strong mx-auto flex w-full max-w-md items-center gap-3 rounded-2xl px-4 py-2.5 shadow-glass">
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[#7c8cff] to-[#ff6bd0]">
-            {isApk ? <ArrowUpCircle className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
+            <ArrowUpCircle className="h-4 w-4" />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold leading-tight">
-              {isApk ? "App update available" : "New version ready"}
-            </p>
+            <p className="text-sm font-semibold leading-tight">App update available</p>
             <p className="truncate text-xs text-white/55">
-              {note ?? (isApk ? `Version ${apk!.versionName}` : "Refresh to get the latest.")}
+              {note ?? `Version ${apk!.versionName}`}
             </p>
           </div>
           <button
-            onClick={isApk ? runApkUpdate : () => window.location.reload()}
+            onClick={runApkUpdate}
             disabled={busy}
             className="glass-btn-primary shrink-0 px-3 py-2 text-sm disabled:opacity-60"
           >
-            {busy ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : isApk ? (
-              "Update"
-            ) : (
-              "Refresh"
-            )}
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Update"}
           </button>
           {!busy && (
             <button

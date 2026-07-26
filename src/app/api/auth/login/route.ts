@@ -42,6 +42,8 @@ export async function POST(req: Request) {
     );
   }
 
-  await createSession({ ledgerId: ledger.id, name: ledger.name });
-  return NextResponse.json({ name: ledger.name });
+  // Token is returned for native clients (Bearer auth); the web app ignores it
+  // and relies on the HttpOnly cookie set by createSession.
+  const token = await createSession({ ledgerId: ledger.id, name: ledger.name });
+  return NextResponse.json({ name: ledger.name, token });
 }

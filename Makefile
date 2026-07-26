@@ -74,14 +74,18 @@ setup-android:
 	"$(SDKMANAGER)" "platform-tools" "platforms;android-$(ANDROID_API)" "build-tools;$(ANDROID_BUILDTOOLS)"
 	@echo ">> Done. Now run:  make android CAP_SERVER_URL=https://your-app.vercel.app"
 
+# Build the static web bundle (out/) that gets packaged into the app, pointing
+# its API calls at the deployed backend, then copy it into the native project.
 sync: guard-server
-	CAP_SERVER_URL="$(CAP_SERVER_URL)" npx cap sync
+	NEXT_PUBLIC_API_BASE="$(CAP_SERVER_URL)" npm run build:native
+	npx cap sync
 
 # --- Android ---------------------------------------------------------------
 android apk: guard-server
 	@[ -x "$(JAVA_HOME)/bin/java" ] || { echo "Java 21 missing — run 'make setup-android'"; exit 1; }
 	@[ -x "$(SDKMANAGER)" ] || { echo "Android SDK missing — run 'make setup-android'"; exit 1; }
-	CAP_SERVER_URL="$(CAP_SERVER_URL)" npx cap sync android
+	NEXT_PUBLIC_API_BASE="$(CAP_SERVER_URL)" npm run build:native
+	npx cap sync android
 	@echo "sdk.dir=$(ANDROID_HOME)" > android/local.properties
 	cd android && ./gradlew assembleDebug
 	@cp android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/spendly-plus.apk
@@ -91,7 +95,8 @@ android apk: guard-server
 android-release: guard-server
 	@[ -x "$(JAVA_HOME)/bin/java" ] || { echo "Java 21 missing — run 'make setup-android'"; exit 1; }
 	@[ -x "$(SDKMANAGER)" ] || { echo "Android SDK missing — run 'make setup-android'"; exit 1; }
-	CAP_SERVER_URL="$(CAP_SERVER_URL)" npx cap sync android
+	NEXT_PUBLIC_API_BASE="$(CAP_SERVER_URL)" npm run build:native
+	npx cap sync android
 	@echo "sdk.dir=$(ANDROID_HOME)" > android/local.properties
 	cd android && ./gradlew assembleRelease
 	@cp android/app/build/outputs/apk/release/app-release-unsigned.apk android/app/build/outputs/apk/release/spendly-plus.apk
@@ -100,43 +105,53 @@ android-release: guard-server
 	@echo "   (sign it with apksigner/zipalign before distributing)"
 
 # --- Ship an update --------------------------------------------------------
-# Bumps the Android versionCode/versionName and builds the APK in one step, so
-# the in-app updater actually sees a newer binary. After it finishes, create a
-# GitHub release tagged "v<CODE>" (the tag MUST match CODE) and attach the APK;
-# installed apps then detect and offer the update automatically — no web
-# redeploy needed (/api/version reads the latest GitHub release live).
-#   Usage:  make release CODE=2            (versionName defaults to <CODE>.0)
-#           make release CODE=2 NAME=1.0.1
+# Builds the APK. Updates are detected by the APK's sha256 (the release ASSET
+# digest), NOT the git tag/commit — so you can keep a single fixed release tag
+# ("latest") and just re-upload the new spendly-plus.apk to it. /api/version
+# reads the latest release's asset digest live; installed apps compare it to the
+# digest they installed and offer the in-app update. No web redeploy needed.
+#
+#   Usage:  make release                 (build only; then upload the APK)
+#           make release CODE=2 NAME=1.0.1   (also bump versionCode/versionName)
 release: guard-server
-	@[ -n "$(CODE)" ] || { echo "Usage: make release CODE=2 [NAME=1.0.1]"; exit 1; }
-	@NAME="$(NAME)"; NAME="$${NAME:-$(CODE).0}"; \
-	 sed -i '' -E "s/versionCode [0-9]+/versionCode $(CODE)/" android/app/build.gradle; \
-	 sed -i '' -E "s/versionName \"[^\"]*\"/versionName \"$$NAME\"/" android/app/build.gradle; \
-	 echo ">> android/app/build.gradle -> versionCode $(CODE), versionName $$NAME"
+	@if [ -n "$(CODE)" ]; then \
+	   NAME="$(NAME)"; NAME="$${NAME:-$(CODE).0}"; \
+	   sed -i '' -E "s/versionCode [0-9]+/versionCode $(CODE)/" android/app/build.gradle; \
+	   sed -i '' -E "s/versionName \"[^\"]*\"/versionName \"$$NAME\"/" android/app/build.gradle; \
+	   echo ">> android/app/build.gradle -> versionCode $(CODE), versionName $$NAME"; \
+	 fi
 	@$(MAKE) android CAP_SERVER_URL="$(CAP_SERVER_URL)"
-	@echo ""
-	@echo "➡  Now publish a GitHub release:"
-	@echo "     tag = v$(CODE)   (must match versionCode)"
-	@echo "     attach = $(CURDIR)/android/app/build/outputs/apk/debug/spendly-plus.apk"
-	@echo "   Installed apps will then show the in-app update automatically."
+	@APK="$(CURDIR)/android/app/build/outputs/apk/debug/spendly-plus.apk"; \
+	 echo ""; \
+	 echo "➡  Upload this APK to the GitHub release (re-uploading to the same"; \
+	 echo "   'latest' tag is fine — the changed sha256 triggers the update):"; \
+	 echo "     $$APK"; \
+	 echo ""; \
+	 echo "   Replace the asset on the existing release (GitHub CLI):"; \
+	 echo "     gh release upload latest \"$$APK\" --clobber"; \
+	 echo ""; \
+	 echo "   Installed apps will detect the new APK sha256 and offer the update."
 
 # --- iOS (requires full Xcode) --------------------------------------------
 ios: guard-server
 	@xcodebuild -version >/dev/null 2>&1 || { echo "Full Xcode required (you have only Command Line Tools). Install Xcode from the Mac App Store, then: sudo xcode-select -s /Applications/Xcode.app"; exit 1; }
-	CAP_SERVER_URL="$(CAP_SERVER_URL)" npx cap sync ios
+	NEXT_PUBLIC_API_BASE="$(CAP_SERVER_URL)" npm run build:native
+	npx cap sync ios
 	cd ios/App && xcodebuild -project App.xcodeproj -scheme App -sdk iphonesimulator -configuration Debug -derivedDataPath build build
 	@echo ""
 	@echo "✅ Simulator .app: $(CURDIR)/ios/App/build/Build/Products/Debug-iphonesimulator/App.app"
 	@echo "   For a distributable .ipa, open in Xcode and use Product > Archive."
 
 open-android: guard-server
-	CAP_SERVER_URL="$(CAP_SERVER_URL)" npx cap sync android
+	NEXT_PUBLIC_API_BASE="$(CAP_SERVER_URL)" npm run build:native
+	npx cap sync android
 	npx cap open android
 
 open-ios: guard-server
-	CAP_SERVER_URL="$(CAP_SERVER_URL)" npx cap sync ios
+	NEXT_PUBLIC_API_BASE="$(CAP_SERVER_URL)" npm run build:native
+	npx cap sync ios
 	npx cap open ios
 
 clean:
-	rm -rf android/app/build android/build ios/App/build ios/DerivedData
+	rm -rf android/app/build android/build ios/App/build ios/DerivedData out .native-build-bak
 	@echo "Cleaned native build outputs."
