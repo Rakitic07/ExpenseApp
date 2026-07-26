@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Dark tile behind the art; the foreground already contains the full neon
+         artwork centred inside the adaptive safe zone (padded with the same dark
+         colour) so no launcher mask can ever clip it. -->
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>

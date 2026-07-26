@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Plus, LogOut, Sparkles, Wallet, ShieldCheck, PartyPopper, Github, Shield } from "lucide-react";
+import { Plus, LogOut, Sparkles, Wallet, ShieldCheck, PartyPopper, Github, Shield, Download, LayoutGrid, PieChart, ReceiptText } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Expense, ExpenseDraft } from "@/lib/types";
 import { CurrencyProvider, formatFor } from "@/lib/currency";
+import { isNativeApp } from "@/lib/platform";
 import {
   readCache,
   writeCache,
@@ -30,6 +31,7 @@ import ExpenseForm from "./ExpenseForm";
 import CurrencySelect from "./CurrencySelect";
 import SyncButton from "./SyncButton";
 import AdminDashboard from "./AdminDashboard";
+import UpdatePrompt from "./UpdatePrompt";
 
 type Status = "loading" | "guest" | "authed";
 
@@ -46,7 +48,10 @@ export default function Spendly() {
   const [online, setOnline] = useState(true);
   const [syncError, setSyncError] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
+  const [isNative, setIsNative] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
+  // Which dashboard section the mobile bottom-nav is showing (desktop ignores it).
+  const [mobileTab, setMobileTab] = useState<"overview" | "charts" | "activity">("overview");
 
   // Push queued writes to the DB, then pull the canonical list (when the queue
   // is fully drained). Takes the space explicitly so it can run before the
@@ -191,6 +196,7 @@ export default function Spendly() {
       /iPad|iPhone|iPod/.test(ua) ||
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
     setIsIOS(iOS);
+    setIsNative(isNativeApp());
   }, []);
 
   // Auto-sync when connectivity returns; track online/offline for the badge.
@@ -225,6 +231,17 @@ export default function Spendly() {
       }
     }
     await api.logout();
+    // Android's WebView can resurrect a "cleared" session cookie on the next
+    // launch (it doesn't always flush the removal to disk). Force-clear the
+    // WebView cookie store so logout actually sticks across app restarts.
+    try {
+      const cap = (window as unknown as {
+        Capacitor?: { Plugins?: { AppUpdater?: { clearCookies?: () => Promise<void> } } };
+      }).Capacitor;
+      await cap?.Plugins?.AppUpdater?.clearCookies?.();
+    } catch {
+      /* web / plugin missing — the cookie clear from /api/auth/logout is enough */
+    }
     forgetSpace();
     setExpenses([]);
     setBudget(null);
@@ -280,7 +297,9 @@ export default function Spendly() {
        * under the notch / translucent status bar when installed as a PWA. On
        * Android and desktop env(safe-area-inset-top) is 0, so nothing changes.
        */}
-      <div className="mx-auto w-full max-w-6xl px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-[calc(env(safe-area-inset-top)+1.5rem)] sm:px-6 sm:pb-[calc(env(safe-area-inset-bottom)+2.5rem)] sm:pt-[calc(env(safe-area-inset-top)+2.5rem)]">
+      <div
+        className="mx-auto w-full max-w-6xl px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-[calc(env(safe-area-inset-top)+1.5rem)] sm:px-6 sm:pb-[calc(env(safe-area-inset-bottom)+2.5rem)] sm:pt-[calc(env(safe-area-inset-top)+2.5rem)]"
+      >
         {/* Header */}
         <header className="mb-8 flex items-center justify-between gap-2">
           <div className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3">
@@ -319,7 +338,9 @@ export default function Spendly() {
                   setEditing(null);
                   setFormOpen(true);
                 }}
-                className="glass-btn-primary px-3 py-2.5 sm:px-4"
+                className={`glass-btn-primary px-3 py-2.5 sm:px-4 ${
+                  isNative ? "hidden sm:flex" : "flex"
+                }`}
               >
                 <Plus className="h-4 w-4" />
                 <span className="hidden sm:inline">Add expense</span>
@@ -342,6 +363,8 @@ export default function Spendly() {
             expenses={expenses}
             budget={budget}
             onSetBudget={handleSetBudget}
+            mobileTab={mobileTab}
+            tabbed={isNative}
             onEdit={(e) => {
               setEditing(e);
               setFormOpen(true);
@@ -406,7 +429,9 @@ export default function Spendly() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 24, scale: 0.95 }}
             transition={{ type: "spring", stiffness: 300, damping: 26 }}
-            className="glass-strong fixed inset-x-0 bottom-6 z-[60] mx-auto flex w-fit items-center gap-2.5 rounded-2xl px-5 py-3 text-sm font-medium"
+            className={`glass-strong fixed inset-x-0 z-[60] mx-auto flex w-fit items-center gap-2.5 rounded-2xl px-5 py-3 text-sm font-medium sm:bottom-6 ${
+              isNative ? "bottom-[calc(env(safe-area-inset-bottom)+5.5rem)]" : "bottom-6"
+            }`}
           >
             <PartyPopper className="h-4 w-4 text-[#ffd43b]" />
             {toast}
@@ -414,7 +439,16 @@ export default function Spendly() {
         )}
       </AnimatePresence>
 
-      <footer className="flex flex-col items-center gap-2 pb-8 pt-4 text-center text-xs text-white/35">
+      {/* The fixed bottom nav (mobile, authed) would otherwise sit on top of the
+          footer, so give the footer extra bottom room to clear it. On desktop /
+          guest (no nav) it's just the normal pb-8. */}
+      <footer
+        className={`flex flex-col items-center gap-2 pt-4 text-center text-xs text-white/35 sm:pb-8 ${
+          status === "authed" && isNative
+            ? "pb-[calc(env(safe-area-inset-bottom)+5.5rem)]"
+            : "pb-8"
+        }`}
+      >
         <span>Spendly-Plus · built with Next.js · deploy-ready for Vercel</span>
         <div className="flex items-center gap-1">
           <a
@@ -428,6 +462,17 @@ export default function Spendly() {
             <Github className="h-4 w-4" />
             <span>Rakitic07</span>
           </a>
+          {!isNative && (
+            <a
+              href="https://github.com/Rakitic07/ExpenseApp/releases/latest/download/spendly-plus.apk"
+              aria-label="Download the Android app (APK)"
+              title="Download the Android app (.apk)"
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-white/50 transition hover:bg-white/10 hover:text-white/80"
+            >
+              <Download className="h-4 w-4" />
+              <span>Android app</span>
+            </a>
+          )}
           <button
             type="button"
             onClick={() => setAdminOpen(true)}
@@ -440,6 +485,60 @@ export default function Spendly() {
           </button>
         </div>
       </footer>
+
+      {/* Native-app-only mobile chrome: bottom tab navigation + floating Add
+          button. This app-like layout is reserved for the installed APK/IPA; a
+          phone browser or PWA gets the regular stacked website layout instead.
+          Hidden on sm+ where the full desktop layout shows. */}
+      {status === "authed" && isNative && (
+        <>
+          <button
+            onClick={() => {
+              setEditing(null);
+              setFormOpen(true);
+            }}
+            aria-label="Add expense"
+            className="fixed bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] right-4 z-50 grid h-14 w-14 place-items-center rounded-full bg-gradient-to-br from-[#7c8cff] to-[#ff6bd0] text-white shadow-glow active:scale-95 sm:hidden"
+          >
+            <Plus className="h-6 w-6" />
+          </button>
+
+          <nav className="glass-strong fixed inset-x-0 bottom-0 z-40 flex items-stretch justify-around border-t border-white/10 px-2 pb-[calc(env(safe-area-inset-bottom)+0.3rem)] pt-1.5 sm:hidden">
+            {(
+              [
+                { id: "overview", label: "Overview", icon: LayoutGrid },
+                { id: "charts", label: "Charts", icon: PieChart },
+                { id: "activity", label: "Activity", icon: ReceiptText },
+              ] as const
+            ).map(({ id, label, icon: Icon }) => {
+              const active = mobileTab === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => setMobileTab(id)}
+                  aria-label={label}
+                  aria-current={active ? "page" : undefined}
+                  className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl py-1 text-[11px] font-medium transition ${
+                    active ? "text-white" : "text-white/45 hover:text-white/70"
+                  }`}
+                >
+                  <span
+                    className={`grid h-8 w-16 place-items-center rounded-xl transition ${
+                      active ? "bg-white/15" : ""
+                    }`}
+                  >
+                    <Icon className="h-[22px] w-[22px]" />
+                  </span>
+                  {label}
+                </button>
+              );
+            })}
+          </nav>
+        </>
+      )}
+
+      {/* In-app updater (native app only): refresh web / install new APK. */}
+      <UpdatePrompt />
 
       <AdminDashboard open={adminOpen} onClose={() => setAdminOpen(false)} />
     </main>

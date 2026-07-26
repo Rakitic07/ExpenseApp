@@ -51,7 +51,6 @@ export async function POST(req: Request) {
     matches = [];
     for (const c of candidates) {
       if (matches.length >= MAX_RESULTS) break;
-      // eslint-disable-next-line no-await-in-loop
       if (await bcrypt.compare(passphrase, c.passHash)) matches.push(c.name);
     }
   } else {

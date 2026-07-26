@@ -1,0 +1,77 @@
+name: Build Android APK & Release
+
+# Builds the Capacitor Android app and attaches spendly-plus.apk to a GitHub
+# Release, so the website's "Download Android app" button always serves the
+# latest build from /releases/latest/download/spendly-plus.apk.
+#
+# Triggers:
+#   - pushing a version tag (e.g. v1.0.0) -> release under that tag
+#   - manual run (Actions tab -> Run workflow) -> updates the "android-latest" release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+# Least privilege: only the token permission needed to publish a release.
+permissions:
+  contents: write
+
+env:
+  # The deployed site the native shell loads. Public value (not a secret).
+  # Override by setting a repo variable of the same name if your URL differs.
+  CAP_SERVER_URL: ${{ vars.CAP_SERVER_URL || 'https://spendly-plus.vercel.app/' }}
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync Capacitor (injects CAP_SERVER_URL)
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Rename artifact
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk spendly-plus.apk
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spendly-plus-apk
+          path: spendly-plus.apk
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: spendly-plus.apk
+          # Tagged run -> that tag; manual run -> rolling "android-latest".
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'android-latest' }}
+          name: ${{ github.ref_type == 'tag' && github.ref_name || 'Android latest build' }}
+          make_latest: true
+          fail_on_unmatched_files: true

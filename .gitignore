@@ -34,3 +34,17 @@ next-env.d.ts
 /prisma/*.db
 /prisma/*.db-journal
 /prisma/*.db-wal
+
+# capacitor native build artifacts
+/android/app/build/
+/android/build/
+/android/.gradle/
+/android/local.properties
+/android/app/src/main/assets/public/
+/android/app/src/main/assets/capacitor.config.json
+/android/app/src/main/assets/capacitor.plugins.json
+/ios/App/App/public/
+/ios/App/App/capacitor.config.json
+/ios/App/Pods/
+/ios/App/build/
+/ios/DerivedData/

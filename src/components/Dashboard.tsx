@@ -152,12 +152,16 @@ function InsightCard({
   );
 }
 
+type MobileTab = "overview" | "charts" | "activity";
+
 export default function Dashboard({
   expenses,
   readOnly,
   onEdit,
   budget = null,
   onSetBudget,
+  mobileTab = "overview",
+  tabbed = false,
 }: {
   expenses: Expense[];
   readOnly?: boolean;
@@ -165,7 +169,17 @@ export default function Dashboard({
   // Budget is a per-space setting synced to the DB and owned by the parent.
   budget?: number | null;
   onSetBudget?: (value: number | null) => void;
+  // On phones the content is split into tabs driven by a bottom nav bar. On
+  // desktop (sm+) every section is always shown, so this only affects mobile.
+  mobileTab?: MobileTab;
+  // Only the native app uses the tabbed phone layout. In a mobile browser / PWA
+  // we show the regular stacked website layout (every section, always visible).
+  tabbed?: boolean;
 }) {
+  // Native app: show only the active tab's section on mobile (always on sm+).
+  // Browser / PWA: never gate — show every section like the desktop layout.
+  const section = (tab: MobileTab) =>
+    tabbed ? cn(mobileTab === tab ? "block" : "hidden", "sm:block") : "block";
   const now = new Date();
   const years = useMemo(() => availableYears(expenses), [expenses]);
   const [view, setView] = useState<View>("month");
@@ -343,6 +357,8 @@ export default function Dashboard({
         )}
       </div>
 
+      {/* ── Overview tab (mobile) ───────────────────────────────────────── */}
+      <div className={cn("space-y-6", section("overview"))}>
       {/* Budget ring (month view) */}
       {view === "month" && !readOnly && onSetBudget && (
         <BudgetRing
@@ -430,9 +446,11 @@ export default function Dashboard({
           />
         </div>
       )}
+      </div>
 
+      {/* ── Charts tab (mobile) ─────────────────────────────────────────── */}
       {/* Charts */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className={cn("grid gap-4 lg:grid-cols-2", section("charts"))}>
         <ChartCard title="Spending by category" icon={<PieIcon className="h-4 w-4" />}>
           <CategoryDonut data={cats} />
         </ChartCard>
@@ -467,8 +485,9 @@ export default function Dashboard({
         </ChartCard>
       </div>
 
+      {/* ── Activity tab (mobile) ───────────────────────────────────────── */}
       {/* List */}
-      <div>
+      <div className={section("activity")}>
         <div className="mb-3 flex flex-col gap-3 px-1 sm:flex-row sm:items-center sm:justify-between">
           <h3 className="text-sm font-medium text-white/70">
             Transactions · {periodLabel}

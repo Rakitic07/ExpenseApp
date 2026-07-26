@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Spendly-Plus</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        height: 100%;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: radial-gradient(1200px 800px at 20% -10%, #241a3d 0%, #0b0b16 55%, #06060d 100%);
+        color: #fff;
+      }
+      .wrap {
+        min-height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        padding: 32px;
+        text-align: center;
+      }
+      .badge {
+        width: 76px;
+        height: 76px;
+        border-radius: 22px;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(135deg, #7c8cff, #ff6bd0);
+        box-shadow: 0 12px 40px rgba(124, 140, 255, 0.35);
+        font-size: 38px;
+      }
+      h1 { font-size: 22px; margin: 6px 0 0; }
+      p { margin: 0; max-width: 340px; color: rgba(255, 255, 255, 0.6); font-size: 14px; line-height: 1.5; }
+      code {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 10px;
+        padding: 2px 8px;
+        font-size: 12px;
+      }
+      .spinner {
+        margin-top: 6px;
+        width: 26px;
+        height: 26px;
+        border: 3px solid rgba(255, 255, 255, 0.2);
+        border-top-color: #ff6bd0;
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="badge">💸</div>
+      <h1>Spendly-Plus</h1>
+      <p id="msg">Connecting to your Spendly-Plus server…</p>
+      <div class="spinner"></div>
+      <p style="font-size: 12px">
+        If this screen stays, rebuild the app with your deployment URL set:
+        <br /><code>CAP_SERVER_URL="https://your-app.vercel.app"</code>
+      </p>
+    </div>
+  </body>
+</html>
