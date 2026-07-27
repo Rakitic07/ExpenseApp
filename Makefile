@@ -32,15 +32,15 @@ export ANDROID_HOME
 export ANDROID_SDK_ROOT = $(ANDROID_HOME)
 export JAVA_HOME
 
-.PHONY: help doctor setup-android sync android apk android-release release ios open-android open-ios clean
+.PHONY: help doctor setup-android sync android apk android-release release ios open-android open-ios clean guard-debug-keystore
 
 help:
 	@echo "Spendly-Plus native build targets:"
 	@echo "  make doctor           - check what toolchain is installed/missing"
 	@echo "  make setup-android    - one-time: install JDK 17 + Android SDK (Homebrew)"
-	@echo "  make android          - build a debug APK  (needs CAP_SERVER_URL)"
-	@echo "  make release CODE=2   - bump version to <CODE> and build the APK (for a new update)"
-	@echo "  make android-release  - build an unsigned release APK"
+	@echo "  make android          - build a DEBUG APK (slower; for debugging only)"
+	@echo "  make android-release  - build the FAST optimized release APK (install this)"
+	@echo "  make release CODE=2   - bump version to <CODE> and build the release APK (for a new update)"
 	@echo "  make ios              - build for iOS Simulator (needs full Xcode)"
 	@echo "  make sync             - just sync the web config into the native projects"
 	@echo "  make open-android / open-ios - open the native IDE (if installed)"
@@ -92,17 +92,36 @@ android apk: guard-server
 	@echo ""
 	@echo "✅ APK: $(CURDIR)/android/app/build/outputs/apk/debug/spendly-plus.apk"
 
-android-release: guard-server
+# Ensure the Android debug keystore exists (used to sign the release APK for
+# sideloading). It's normally created on the first debug build; generate it with
+# the standard public debug parameters if it's missing so `assembleRelease` can
+# sign without Android Studio.
+guard-debug-keystore:
+	@KS="$$HOME/.android/debug.keystore"; \
+	 if [ ! -f "$$KS" ]; then \
+	   echo ">> Creating Android debug keystore at $$KS"; \
+	   mkdir -p "$$HOME/.android"; \
+	   "$(JAVA_HOME)/bin/keytool" -genkeypair -v -keystore "$$KS" \
+	     -storepass android -keypass android -alias androiddebugkey \
+	     -keyalg RSA -keysize 2048 -validity 10000 \
+	     -dname "CN=Android Debug,O=Android,C=US"; \
+	 fi
+
+# Build the OPTIMIZED release APK (debuggable=false → much faster than the debug
+# build). Signed with the debug keystore so it's installable via sideload and
+# upgrades cleanly over an existing install (same signer). This is the build you
+# should install/ship for day-to-day use.
+android-release: guard-server guard-debug-keystore
 	@[ -x "$(JAVA_HOME)/bin/java" ] || { echo "Java 21 missing — run 'make setup-android'"; exit 1; }
 	@[ -x "$(SDKMANAGER)" ] || { echo "Android SDK missing — run 'make setup-android'"; exit 1; }
 	NEXT_PUBLIC_API_BASE="$(CAP_SERVER_URL)" npm run build:native
 	npx cap sync android
 	@echo "sdk.dir=$(ANDROID_HOME)" > android/local.properties
 	cd android && ./gradlew assembleRelease
-	@cp android/app/build/outputs/apk/release/app-release-unsigned.apk android/app/build/outputs/apk/release/spendly-plus.apk
+	@cp android/app/build/outputs/apk/release/app-release.apk android/app/build/outputs/apk/release/spendly-plus.apk
 	@echo ""
-	@echo "✅ Unsigned release APK: $(CURDIR)/android/app/build/outputs/apk/release/spendly-plus.apk"
-	@echo "   (sign it with apksigner/zipalign before distributing)"
+	@echo "✅ Signed release APK (fast build): $(CURDIR)/android/app/build/outputs/apk/release/spendly-plus.apk"
+	@echo "   Install it directly — this is the optimized, non-debuggable build."
 
 # --- Ship an update --------------------------------------------------------
 # Builds the APK. Updates are detected by the APK's sha256 (the release ASSET
@@ -120,8 +139,8 @@ release: guard-server
 	   sed -i '' -E "s/versionName \"[^\"]*\"/versionName \"$$NAME\"/" android/app/build.gradle; \
 	   echo ">> android/app/build.gradle -> versionCode $(CODE), versionName $$NAME"; \
 	 fi
-	@$(MAKE) android CAP_SERVER_URL="$(CAP_SERVER_URL)"
-	@APK="$(CURDIR)/android/app/build/outputs/apk/debug/spendly-plus.apk"; \
+	@$(MAKE) android-release CAP_SERVER_URL="$(CAP_SERVER_URL)"
+	@APK="$(CURDIR)/android/app/build/outputs/apk/release/spendly-plus.apk"; \
 	 echo ""; \
 	 echo "➡  Upload this APK to the GitHub release (re-uploading to the same"; \
 	 echo "   'latest' tag is fine — the changed sha256 triggers the update):"; \

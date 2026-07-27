@@ -216,19 +216,56 @@ html.native .pill {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
+/*
+ * FULLY OPAQUE surfaces in the native app. Even without backdrop-filter, a
+ * translucent panel (alpha < 1) forces the WebView to BLEND it against whatever
+ * is behind it — the fixed full-screen Background layer — on every single scroll
+ * frame. That per-frame recomposite is the remaining scroll jank. Painting the
+ * panels 100% opaque means scrolling only has to translate finished pixels over
+ * a solid root: the cheapest possible composite. Colours are the flattened
+ * equivalents of the old translucent values over the near-black background, so
+ * it looks the same.
+ */
+/*
+ * Flat cards in the native app — NO blurred drop shadow. A `box-shadow` with a
+ * 20–26px blur radius has to be re-rasterized for every tile that scrolls into
+ * view, and on a DPR≈2.24 panel that raster is the dominant per-frame cost
+ * behind the sustained ~30fps scroll in the [PERF] logs. We keep only a 0-blur
+ * inset hairline (essentially free) for the subtle top-edge highlight; depth now
+ * comes from the border + opaque fill, which the compositor can just translate.
+ */
 html.native .glass {
   background-image: none;
-  background-color: rgba(18, 20, 40, 0.92);
-  box-shadow:
-    0 8px 20px -12px rgba(0, 0, 0, 0.6),
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.07);
+  background-color: #131327;
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.07);
 }
 html.native .glass-strong {
   background-image: none;
-  background-color: rgba(22, 24, 46, 0.96);
-  box-shadow:
-    0 12px 26px -14px rgba(0, 0, 0, 0.7),
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+  background-color: #16182f;
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+}
+/*
+ * Kill the separate fixed Background layer in the native app. It's a full-screen
+ * radial gradient PLUS a tiled 1px noise-dot pattern that the WebView keeps as a
+ * standalone compositor layer; every scroll frame the (now opaque) content has
+ * to be composited over it. With opaque panels the gradient/noise is barely
+ * visible anyway, so we drop the whole layer and let the solid body colour show
+ * through — one fewer layer to composite on every frame.
+ */
+html.native .app-bg {
+  display: none;
+}
+html.native,
+html.native body {
+  background: #06070f;
+}
+/* Isolate the fixed bottom nav onto its own GPU layer and stop overscroll
+   bounce from repainting the whole page. */
+html.native nav {
+  transform: translateZ(0);
+}
+html.native body {
+  overscroll-behavior-y: none;
 }
 html.native .glass-input {
   background-image: none;
@@ -238,7 +275,7 @@ html.native .glass-input {
 html.native .glass-btn {
   background-image: none;
   background-color: rgba(255, 255, 255, 0.1);
-  box-shadow: 0 6px 14px -10px rgba(0, 0, 0, 0.6);
+  box-shadow: none;
 }
 html.native .pill {
   background-image: none;

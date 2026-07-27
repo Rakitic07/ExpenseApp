@@ -6,7 +6,7 @@ import { ArrowUpCircle, Loader2, X } from "lucide-react";
 import { isNativeApp } from "@/lib/platform";
 import {
   fetchLatest,
-  hasUpdate,
+  checkForUpdate,
   installUpdate,
   markInstalled,
   cleanupDownloads,
@@ -30,7 +30,8 @@ export default function UpdatePrompt() {
 
   const check = useCallback(async () => {
     const latest = await fetchLatest();
-    if (hasUpdate(latest) && latest) {
+    const { isUpdate } = await checkForUpdate(latest);
+    if (isUpdate && latest) {
       setApk({
         versionName: latest.versionName,
         url: latest.url,

@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import type { Expense, ExpenseDraft } from "@/lib/types";
 import { CurrencyProvider, formatFor } from "@/lib/currency";
 import { isNativeApp } from "@/lib/platform";
+import { startPerfLogging } from "@/lib/perf";
 import {
   readCache,
   writeCache,
@@ -34,6 +35,7 @@ import AdminDashboard from "./AdminDashboard";
 import UpdatePrompt from "./UpdatePrompt";
 import UpdateDebugBadge from "./UpdateDebugBadge";
 import CheckUpdatesButton from "./CheckUpdatesButton";
+import DownloadLogsButton from "./DownloadLogsButton";
 
 type Status = "loading" | "guest" | "authed";
 
@@ -232,6 +234,9 @@ export default function Spendly() {
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
     setIsIOS(iOS);
     setIsNative(isNativeApp());
+    // Diagnostic performance probe → Android logcat ([PERF] tag). Native app
+    // only (or web with ?perf=1). See src/lib/perf.ts for how to capture.
+    startPerfLogging();
   }, []);
 
   // Auto-sync when connectivity returns; track online/offline for the badge.
@@ -486,40 +491,55 @@ export default function Spendly() {
       >
         <span>Spendly-Plus · built with Next.js · deploy-ready for Vercel</span>
         <div className="flex items-center gap-1">
-          <a
-            href="https://github.com/Rakitic07/ExpenseApp"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="View source & creator on GitHub"
-            title="Made by Rakitic07 · View on GitHub"
-            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-white/50 transition hover:bg-white/10 hover:text-white/80"
-          >
-            <Github className="h-4 w-4" />
-            <span>Rakitic07</span>
-          </a>
-          {!isNative && (
-            <a
-              href="https://github.com/Rakitic07/ExpenseApp/releases/latest/download/spendly-plus.apk"
-              aria-label="Download the Android app (APK)"
-              title="Download the Android app (.apk)"
-              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-white/50 transition hover:bg-white/10 hover:text-white/80"
-            >
-              <Download className="h-4 w-4" />
-              <span>Android app</span>
-            </a>
+          {status === "authed" ? (
+            /* Inside a space: keep ONLY the update check + log export (native
+               app only). The GitHub / Admin links belong to the landing page. */
+            isNative && (
+              <>
+                <CheckUpdatesButton />
+                <DownloadLogsButton />
+              </>
+            )
+          ) : (
+            /* Landing / home (no space open): the usual full footer. */
+            <>
+              <a
+                href="https://github.com/Rakitic07/ExpenseApp"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="View source & creator on GitHub"
+                title="Made by Rakitic07 · View on GitHub"
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-white/50 transition hover:bg-white/10 hover:text-white/80"
+              >
+                <Github className="h-4 w-4" />
+                <span>Rakitic07</span>
+              </a>
+              {!isNative && (
+                <a
+                  href="https://github.com/Rakitic07/ExpenseApp/releases/latest/download/spendly-plus.apk"
+                  aria-label="Download the Android app (APK)"
+                  title="Download the Android app (.apk)"
+                  className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-white/50 transition hover:bg-white/10 hover:text-white/80"
+                >
+                  <Download className="h-4 w-4" />
+                  <span>Android app</span>
+                </a>
+              )}
+              {/* Native app only: manual SHA-based update check (download+install). */}
+              {isNative && <CheckUpdatesButton />}
+              {isNative && <DownloadLogsButton />}
+              <button
+                type="button"
+                onClick={() => setAdminOpen(true)}
+                aria-label="Open admin dashboard"
+                title="Admin dashboard (owner only)"
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-white/50 transition hover:bg-white/10 hover:text-white/80"
+              >
+                <Shield className="h-4 w-4" />
+                <span>Admin</span>
+              </button>
+            </>
           )}
-          {/* Native app only: manual SHA-based update check (download+install). */}
-          {isNative && <CheckUpdatesButton />}
-          <button
-            type="button"
-            onClick={() => setAdminOpen(true)}
-            aria-label="Open admin dashboard"
-            title="Admin dashboard (owner only)"
-            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-white/50 transition hover:bg-white/10 hover:text-white/80"
-          >
-            <Shield className="h-4 w-4" />
-            <span>Admin</span>
-          </button>
         </div>
       </footer>
 

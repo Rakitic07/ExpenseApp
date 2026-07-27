@@ -4,6 +4,16 @@ const config: Config = {
   content: [
     "./src/**/*.{js,ts,jsx,tsx,mdx}",
   ],
+  // Only apply `hover:` styles on devices with a real pointer (desktop mouse).
+  // On phones/native the WebView still fires synthetic mouseover/mouseout while a
+  // finger drags during a scroll, and any `hover:bg-*`/`transition` on the cards
+  // it passes over kicks off an animated repaint — the [PERF] logs literally show
+  // a single `mouseover` taking 352ms. Gating hover behind (hover:hover) kills
+  // that scroll-time repaint churn entirely on touch, which is the main cause of
+  // the sustained ~30fps while scrolling.
+  future: {
+    hoverOnlyWhenSupported: true,
+  },
   theme: {
     extend: {
       fontFamily: {

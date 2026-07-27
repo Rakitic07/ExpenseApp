@@ -1,6 +1,6 @@
 export default function Background() {
   return (
-    <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+    <div className="app-bg pointer-events-none fixed inset-0 -z-10 overflow-hidden">
       {/* deep base gradient */}
       <div className="absolute inset-0 bg-[radial-gradient(125%_125%_at_50%_10%,#0b1030_0%,#05060f_55%,#02030a_100%)]" />
 

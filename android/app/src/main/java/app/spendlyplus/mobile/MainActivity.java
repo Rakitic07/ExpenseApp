@@ -9,10 +9,16 @@ import android.view.WindowManager;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
-    // Target refresh rate we ask the OS for. Panels only support their native
-    // rates, so on a 120Hz phone this gives 120fps; on 90Hz it falls back to the
-    // highest available; on 60Hz it stays 60.
-    private static final float TARGET_HZ = 120f;
+    // Target refresh rate we ask the OS for.
+    //
+    // EXPERIMENT: we previously forced 120Hz, but the [PERF] logs show the WebView
+    // can only rasterize ~46 unique scroll frames/sec on this content. Driving the
+    // panel at 120Hz while the compositor can't keep up produces repeated/uneven
+    // frames — that stutter feels WORSE than a rock-steady 60Hz. So we now request
+    // a STABLE 60Hz cadence (the mode closest to 60 at the current resolution),
+    // which the WebView can actually sustain, to see if scrolling feels smoother.
+    // Bump back toward 120f if a higher stable rate turns out better on device.
+    private static final float TARGET_HZ = 60f;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -30,11 +36,12 @@ public class MainActivity extends BridgeActivity {
     }
 
     /**
-     * Ask the OS to run this window at 120Hz (TARGET_HZ) so WebView scrolling and
-     * animations get up to 120fps instead of the default 60fps cap. We prefer a
-     * 120Hz mode at the CURRENT resolution (no jarring resolution switch); only
-     * if 120Hz isn't offered at this resolution do we accept a 120Hz mode at a
-     * different resolution, and otherwise fall back to the highest rate available.
+     * Ask the OS for a STABLE refresh rate the WebView can actually sustain
+     * (TARGET_HZ, currently 60). We pick the supported mode at the CURRENT
+     * resolution whose refresh rate is CLOSEST to TARGET_HZ — not the highest.
+     * Locking to a cadence the compositor can hit avoids the repeated/uneven
+     * frames that a forced 120Hz produces when raster can't keep up, which reads
+     * as scroll stutter. No jarring resolution switch (same width/height).
      */
     private void applyTargetRefreshRate() {
         try {
@@ -50,28 +57,19 @@ public class MainActivity extends BridgeActivity {
             Display.Mode[] modes = display.getSupportedModes();
             if (modes == null || modes.length == 0) return;
 
-            Display.Mode bestSameRes = current;   // highest rate at current resolution
-            Display.Mode bestAny = current;        // highest rate overall
+            // Among modes at the current resolution, pick the refresh rate closest
+            // to TARGET_HZ. Falls back to the current mode if nothing matches.
+            Display.Mode chosen = current;
+            float bestDelta = Math.abs(current.getRefreshRate() - TARGET_HZ);
             for (Display.Mode m : modes) {
-                if (m.getRefreshRate() > bestAny.getRefreshRate() + 0.1f) {
-                    bestAny = m;
-                }
                 boolean sameSize = m.getPhysicalWidth() == current.getPhysicalWidth()
                         && m.getPhysicalHeight() == current.getPhysicalHeight();
-                if (sameSize && m.getRefreshRate() > bestSameRes.getRefreshRate() + 0.1f) {
-                    bestSameRes = m;
+                if (!sameSize) continue;
+                float delta = Math.abs(m.getRefreshRate() - TARGET_HZ);
+                if (delta < bestDelta - 0.1f) {
+                    bestDelta = delta;
+                    chosen = m;
                 }
-            }
-
-            // Prefer hitting ~120Hz at the current resolution; if that isn't
-            // possible, take a 120Hz mode at any resolution; else the best we can.
-            Display.Mode chosen;
-            if (bestSameRes.getRefreshRate() >= TARGET_HZ - 1f) {
-                chosen = bestSameRes;
-            } else if (bestAny.getRefreshRate() >= TARGET_HZ - 1f) {
-                chosen = bestAny;
-            } else {
-                chosen = bestSameRes;
             }
 
             WindowManager.LayoutParams params = window.getAttributes();

@@ -30,6 +30,10 @@ type AppUpdaterPlugin = {
   getInfo(): Promise<{ versionCode: number; versionName: string }>;
   downloadAndInstall(opts: { url: string }): Promise<{ status: string }>;
   cleanup?(): Promise<{ deleted: number }>;
+  // Writes a text file to the phone's Downloads so the user can grab & share it.
+  saveText?(opts: { name: string; data: string }): Promise<{ uri: string; name: string }>;
+  // sha256 ("sha256:<hex>") of the APK actually installed & running.
+  installedSha?(): Promise<{ sha: string }>;
 };
 
 export function updaterPlugin(): AppUpdaterPlugin | undefined {
@@ -81,9 +85,47 @@ export async function fetchLatest(): Promise<LatestRelease | null> {
 }
 
 /**
- * True when the latest release's APK digest differs from the one this app last
- * installed. On the very first run we seed the baseline to the current latest
- * (the just-installed binary IS the latest) and report "no update".
+ * The sha256 of the APK actually installed & running, computed natively (hash
+ * of the installed base.apk). This is the binary's TRUE identity — the same
+ * value GitHub reports as the release asset's `digest` — so detection no longer
+ * relies on the fragile "remember whatever was latest on first launch" seed.
+ * Falls back to the locally-remembered digest if the native value is missing.
+ */
+export async function currentInstalledSha(): Promise<string> {
+  const plugin = updaterPlugin();
+  try {
+    const r = await plugin?.installedSha?.();
+    if (r?.sha) {
+      // Cache it so the sync `installedDigest()` (used by the badge) is accurate.
+      markInstalled(r.sha);
+      return r.sha;
+    }
+  } catch {
+    /* native method unavailable — fall back below */
+  }
+  return seenDigest() ?? "";
+}
+
+/**
+ * Async update check based on the REAL installed APK sha vs the latest release
+ * asset digest. Returns both so callers can also surface them for diagnostics.
+ */
+export async function checkForUpdate(
+  latest: LatestRelease | null
+): Promise<{ installed: string; latest: string; isUpdate: boolean }> {
+  const installed = await currentInstalledSha();
+  const latestSha = latest?.assetSha ?? "";
+  return {
+    installed,
+    latest: latestSha,
+    isUpdate: !!latestSha && !!installed && installed !== latestSha,
+  };
+}
+
+/**
+ * Legacy sync check kept for fallback. Prefer `checkForUpdate()`, which uses the
+ * real native APK sha. On the very first run with no remembered digest we seed
+ * the baseline and report "no update".
  */
 export function hasUpdate(latest: LatestRelease | null): boolean {
   if (!latest?.assetSha) return false;

@@ -1,6 +1,5 @@
 "use client";
 
-import { motion } from "framer-motion";
 import { Pencil } from "lucide-react";
 import type { Expense } from "@/lib/types";
 import { categoryMeta } from "@/lib/categories";
@@ -66,15 +65,12 @@ export default function ExpenseList({
               </span>
             </div>
             <div className="space-y-2">
-              {items.map((e, i) => {
+              {items.map((e) => {
                 const meta = categoryMeta(e.category);
                 return (
-                  <motion.button
+                  <button
                     key={e.id}
                     type="button"
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: Math.min(i * 0.02, 0.2) }}
                     onClick={() => !readOnly && onEdit?.(e)}
                     className="glass group flex w-full items-center gap-3 rounded-2xl p-3 text-left transition hover:bg-white/[0.16]"
                   >
@@ -95,7 +91,7 @@ export default function ExpenseList({
                     {!readOnly && (
                       <Pencil className="h-4 w-4 shrink-0 text-white/0 transition group-hover:text-white/50" />
                     )}
-                  </motion.button>
+                  </button>
                 );
               })}
             </div>

@@ -1,10 +1,14 @@
 package app.spendlyplus.mobile;
 
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.provider.Settings;
 import android.webkit.CookieManager;
 
@@ -17,10 +21,14 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Locale;
 
 /**
@@ -59,6 +67,34 @@ public class AppUpdaterPlugin extends Plugin {
             call.resolve(ret);
         } catch (Exception e) {
             call.reject("Unable to read app info", e);
+        }
+    }
+
+    /**
+     * Returns the sha256 of the APK that is actually installed & running
+     * ("sha256:<hex>"). This is the real identity of the current binary — the
+     * same value GitHub reports as a release asset's `digest` for the uploaded
+     * file — so the app can reliably tell whether the latest release differs
+     * from what's installed, without any "remember the latest we saw" heuristic.
+     */
+    @PluginMethod
+    public void installedSha(PluginCall call) {
+        try {
+            String path = getContext().getApplicationInfo().sourceDir;
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            try (InputStream in = new FileInputStream(path)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) != -1) md.update(buf, 0, n);
+            }
+            byte[] digest = md.digest();
+            StringBuilder sb = new StringBuilder("sha256:");
+            for (byte b : digest) sb.append(String.format(Locale.ROOT, "%02x", b));
+            JSObject ret = new JSObject();
+            ret.put("sha", sb.toString());
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Unable to hash installed APK: " + e.getMessage(), e);
         }
     }
 
@@ -103,6 +139,56 @@ public class AppUpdaterPlugin extends Plugin {
         JSObject ret = new JSObject();
         ret.put("deleted", deleted);
         call.resolve(ret);
+    }
+
+    /**
+     * Writes a UTF-8 text file (our in-app performance log) to the phone's public
+     * Downloads folder so the user can find it in the Files/Downloads app and
+     * share it. Uses MediaStore on Android 10+ (no storage permission needed);
+     * falls back to the app-specific external Downloads dir on older versions.
+     */
+    @PluginMethod
+    public void saveText(PluginCall call) {
+        String name = call.getString("name", "spendly-perf.log");
+        String data = call.getString("data", "");
+        byte[] bytes = data.getBytes(StandardCharsets.UTF_8);
+        try {
+            Uri outUri;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ContentResolver resolver = getContext().getContentResolver();
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.Downloads.DISPLAY_NAME, name);
+                values.put(MediaStore.Downloads.MIME_TYPE, "text/plain");
+                values.put(MediaStore.Downloads.IS_PENDING, 1);
+                outUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                if (outUri == null) {
+                    call.reject("Could not create file in Downloads");
+                    return;
+                }
+                try (OutputStream os = resolver.openOutputStream(outUri)) {
+                    if (os != null) os.write(bytes);
+                }
+                values.clear();
+                values.put(MediaStore.Downloads.IS_PENDING, 0);
+                resolver.update(outUri, values, null, null);
+            } else {
+                // Pre-Android 10: write to the app-specific external Downloads dir
+                // (no runtime permission required).
+                File dir = getContext().getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+                if (dir != null && !dir.exists()) dir.mkdirs();
+                File f = new File(dir, name);
+                try (FileOutputStream fos = new FileOutputStream(f)) {
+                    fos.write(bytes);
+                }
+                outUri = Uri.fromFile(f);
+            }
+            JSObject ret = new JSObject();
+            ret.put("uri", outUri != null ? outUri.toString() : "");
+            ret.put("name", name);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Save failed: " + e.getMessage(), e);
+        }
     }
 
     @PluginMethod

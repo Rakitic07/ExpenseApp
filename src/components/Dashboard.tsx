@@ -108,11 +108,7 @@ function Stat({
   accent: string;
 }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="glass rounded-3xl p-4"
-    >
+    <div className="glass rounded-3xl p-4">
       <div className="mb-3 flex items-center justify-between">
         <span className="text-xs text-white/55">{label}</span>
         <span className="grid h-8 w-8 place-items-center rounded-xl" style={{ background: accent + "33" }}>
@@ -121,7 +117,7 @@ function Stat({
       </div>
       <p className="text-2xl font-semibold tracking-tight">{value}</p>
       {sub && <div className="mt-0.5 text-xs text-white/50">{sub}</div>}
-    </motion.div>
+    </div>
   );
 }
 
@@ -176,10 +172,13 @@ export default function Dashboard({
   // we show the regular stacked website layout (every section, always visible).
   tabbed?: boolean;
 }) {
-  // Native app: show only the active tab's section on mobile (always on sm+).
-  // Browser / PWA: never gate — show every section like the desktop layout.
-  const section = (tab: MobileTab) =>
-    tabbed ? cn(mobileTab === tab ? "block" : "hidden", "sm:block") : "block";
+  // On phones (native tabbed layout) MOUNT only the active tab's section instead
+  // of rendering all three and CSS-hiding the inactive ones. The charts section
+  // mounts heavy Recharts SVGs; keeping them in the DOM even while hidden costs
+  // memory and extra compositor layers that make scrolling the Overview/Activity
+  // tabs janky. Mounting just the visible tab keeps the DOM small and scrolling
+  // smooth. Non-tabbed (desktop + mobile browser/PWA) still shows every section.
+  const show = (tab: MobileTab) => !tabbed || mobileTab === tab;
   const now = new Date();
   const years = useMemo(() => availableYears(expenses), [expenses]);
   const [view, setView] = useState<View>("month");
@@ -241,19 +240,25 @@ export default function Dashboard({
           ? "avg / txn"
           : "avg / year";
 
-  const trendData =
-    view === "month"
-      ? dailyTotals(filtered, year, month).map((d) => ({ month: d.day, total: d.total }))
-      : view === "year"
-        ? monthlyTrend(filtered, year)
-        : monthlyTrend(expenses.filter((e) => inYear(e, year)), year);
+  const trendData = useMemo(
+    () =>
+      view === "month"
+        ? dailyTotals(filtered, year, month).map((d) => ({ month: d.day, total: d.total }))
+        : view === "year"
+          ? monthlyTrend(filtered, year)
+          : monthlyTrend(expenses.filter((e) => inYear(e, year)), year),
+    [view, filtered, year, month, expenses]
+  );
 
-  const barData =
-    view === "all"
-      ? yearlyTotals(expenses).map((y) => ({ label: y.year, total: y.total }))
-      : view === "year"
-        ? monthlyTrend(filtered, year).map((m) => ({ label: m.month, total: m.total }))
-        : dailyTotals(filtered, year, month).map((d) => ({ label: d.day, total: d.total }));
+  const barData = useMemo(
+    () =>
+      view === "all"
+        ? yearlyTotals(expenses).map((y) => ({ label: y.year, total: y.total }))
+        : view === "year"
+          ? monthlyTrend(filtered, year).map((m) => ({ label: m.month, total: m.total }))
+          : dailyTotals(filtered, year, month).map((d) => ({ label: d.day, total: d.total })),
+    [view, expenses, filtered, year, month]
+  );
 
   // Transactions list: apply search + category filter on top of the period.
   const listExpenses = useMemo(() => {
@@ -358,7 +363,8 @@ export default function Dashboard({
       </div>
 
       {/* ── Overview tab (mobile) ───────────────────────────────────────── */}
-      <div className={cn("space-y-6", section("overview"))}>
+      {show("overview") && (
+      <div className="space-y-6">
       {/* Budget ring (month view) */}
       {view === "month" && !readOnly && onSetBudget && (
         <BudgetRing
@@ -447,10 +453,12 @@ export default function Dashboard({
         </div>
       )}
       </div>
+      )}
 
       {/* ── Charts tab (mobile) ─────────────────────────────────────────── */}
       {/* Charts */}
-      <div className={cn("grid gap-4 lg:grid-cols-2", section("charts"))}>
+      {show("charts") && (
+      <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard title="Spending by category" icon={<PieIcon className="h-4 w-4" />}>
           <CategoryDonut data={cats} />
         </ChartCard>
@@ -484,10 +492,12 @@ export default function Dashboard({
           <CategoryDonut data={payers} />
         </ChartCard>
       </div>
+      )}
 
       {/* ── Activity tab (mobile) ───────────────────────────────────────── */}
       {/* List */}
-      <div className={section("activity")}>
+      {show("activity") && (
+      <div>
         <div className="mb-3 flex flex-col gap-3 px-1 sm:flex-row sm:items-center sm:justify-between">
           <h3 className="text-sm font-medium text-white/70">
             Transactions · {periodLabel}
@@ -569,6 +579,7 @@ export default function Dashboard({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

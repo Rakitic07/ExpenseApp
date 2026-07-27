@@ -44,11 +44,11 @@ export default function UpdateDebugBadge() {
     <AnimatePresence>
       {visible && (
         <motion.div
-          initial={{ opacity: 0, y: -12 }}
+          initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -12 }}
+          exit={{ opacity: 0, y: 12 }}
           transition={{ duration: 0.35 }}
-          className="pointer-events-none fixed inset-x-0 top-0 z-[80] flex justify-center px-3 pt-[calc(env(safe-area-inset-top)+0.5rem)]"
+          className="pointer-events-none fixed inset-x-0 bottom-0 z-[80] flex justify-center px-3 pb-[calc(env(safe-area-inset-bottom)+5rem)]"
         >
           <div className="glass-strong rounded-full px-4 py-1.5 text-[11px] font-medium tabular-nums">
             <span className="text-white/45">apk </span>

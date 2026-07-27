@@ -25,9 +25,14 @@ const config: CapacitorConfig = {
   appName: "Spendly-Plus",
   webDir: "out",
   backgroundColor: "#0b0b16",
+  // Forward JS console.* to native logs (Android logcat) even in RELEASE builds.
+  // Default ("debug") suppresses console output in release, which would hide our
+  // [PERF] diagnostics. Set back to "debug" (or remove) once profiling is done.
+  loggingBehavior: "production",
   android: {
-    // Local bundle is served from https://localhost.
-    webContentsDebuggingEnabled: false,
+    // Enable chrome://inspect remote debugging so the WebView can also be
+    // profiled from desktop Chrome DevTools while we diagnose performance.
+    webContentsDebuggingEnabled: true,
   },
   plugins: {
     CapacitorHttp: {

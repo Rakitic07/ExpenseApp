@@ -10,12 +10,12 @@ import {
 } from "lucide-react";
 import {
   fetchLatest,
-  hasUpdate,
+  checkForUpdate,
   installUpdate,
-  installedDigest,
   markInstalled,
   broadcastDigests,
 } from "@/lib/appUpdate";
+import { recordDiag } from "@/lib/perf";
 
 type State = "idle" | "checking" | "uptodate" | "available" | "installing" | "error";
 type Target = { versionName: string; url: string; assetSha: string };
@@ -53,12 +53,15 @@ export default function CheckUpdatesButton() {
     setState("checking");
     setMsg(null);
     const latest = await fetchLatest();
-    // Compute update state first (this may seed the baseline on a fresh install),
-    // then read the stored digest so the badge reflects the post-seed value.
-    const isUpdate = latest ? hasUpdate(latest) : false;
-    broadcastDigests({
-      installed: installedDigest(),
-      latest: latest?.assetSha ?? "",
+    // Compare the REAL installed APK sha (computed natively) with the latest
+    // release asset digest — no seeding heuristic.
+    const { installed, latest: latestSha, isUpdate } = await checkForUpdate(latest);
+    broadcastDigests({ installed, latest: latestSha });
+    recordDiag("update-check", {
+      reachable: !!latest,
+      installed,
+      latest: latestSha,
+      isUpdate,
     });
 
     if (!latest) {
