@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { X, Check, Trash2, ChevronDown, ChevronUp } from "lucide-react";
 import { CATEGORIES, CATEGORY_NAMES } from "@/lib/categories";
@@ -18,10 +18,18 @@ function isExtraCategory(name: string): boolean {
 import type { Expense, ExpenseDraft } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useCurrency } from "@/lib/currency";
+import { PAYMENT_MODES, OTHER_PROVIDER, paymentProviders } from "@/lib/payments";
 import DatePicker from "./DatePicker";
 
 // Distinct accent per quick-suggestion chip so a picked one lights up in colour.
 const SUGGESTION_COLORS = ["#7c8cff", "#ff6bd0", "#38d9a9", "#ffd43b"];
+
+// Accent colour per payment mode so the selected one lights up (like categories).
+const PAYMENT_MODE_COLORS: Record<string, string> = {
+  Cash: "#38d9a9",
+  UPI: "#7c8cff",
+  Card: "#ff6bd0",
+};
 
 function toDateInput(iso?: string): string {
   const d = iso ? new Date(iso) : new Date();
@@ -55,9 +63,22 @@ export default function ExpenseForm({
   const [amount, setAmount] = useState("");
   const [paidBy, setPaidBy] = useState("");
   const [date, setDate] = useState(toDateInput());
-  const [notes, setNotes] = useState("");
+  // Payment: the mode (Cash/UPI/Card), the chosen provider from the dropdown
+  // (or the "Other" sentinel), and the free-text value when "Other" is picked.
+  const [paymentMode, setPaymentMode] = useState("");
+  const [providerChoice, setProviderChoice] = useState("");
+  const [customProvider, setCustomProvider] = useState("");
+  // Lets the user dismiss the recent-title suggestion chips for this entry.
+  const [suggestionsHidden, setSuggestionsHidden] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Provider options depend on the payment mode AND the space's currency, so an
+  // INR user sees Google Pay/PhonePe while a USD user sees Apple Pay/Venmo, etc.
+  const providerOptions = useMemo(
+    () => paymentProviders(paymentMode, currency.code),
+    [paymentMode, currency.code]
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -74,7 +95,22 @@ export default function ExpenseForm({
       setAmount(String(editing.amount));
       setPaidBy(editing.paidBy);
       setDate(toDateInput(editing.date));
-      setNotes(editing.notes ?? "");
+      // Restore payment: if the saved provider isn't in the current list (e.g. a
+      // custom value, or the currency changed), treat it as an "Other" entry.
+      const mode = editing.paymentMode ?? "";
+      const detail = editing.paymentDetail ?? "";
+      setPaymentMode(mode);
+      const knownProviders = paymentProviders(mode, currency.code);
+      if (detail && knownProviders.includes(detail)) {
+        setProviderChoice(detail);
+        setCustomProvider("");
+      } else if (detail) {
+        setProviderChoice(OTHER_PROVIDER);
+        setCustomProvider(detail);
+      } else {
+        setProviderChoice("");
+        setCustomProvider("");
+      }
     } else {
       setTitle("");
       setCategory(CATEGORIES[0].name);
@@ -83,10 +119,13 @@ export default function ExpenseForm({
       setAmount("");
       setPaidBy("");
       setDate(toDateInput());
-      setNotes("");
+      setPaymentMode("");
+      setProviderChoice("");
+      setCustomProvider("");
     }
+    setSuggestionsHidden(false);
     setError(null);
-  }, [open, editing]);
+  }, [open, editing, currency.code]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -100,9 +139,23 @@ export default function ExpenseForm({
       setError("Please pick a category.");
       return;
     }
+    // "Paid by" is a person's name — allow digits within it (e.g. "Raj 2") but
+    // reject values that are only numbers/symbols with no letters at all.
+    if (!/[a-zA-Z]/.test(paidBy)) {
+      setError("“Paid by” should be a name — please include letters, not just numbers.");
+      return;
+    }
     // When "Other" is chosen, use the typed label (if any) as the real category.
     const finalCategory =
       category === "Other" && customCategory.trim() ? customCategory.trim() : category;
+    // Resolve the payment detail: none for Cash/unset, the typed value for
+    // "Other", otherwise the picked provider.
+    const finalDetail =
+      !paymentMode || paymentMode === "Cash"
+        ? undefined
+        : providerChoice === OTHER_PROVIDER
+          ? customProvider.trim() || undefined
+          : providerChoice || undefined;
     setBusy(true);
     try {
       await onSave(
@@ -112,7 +165,8 @@ export default function ExpenseForm({
           amount: amountNum,
           paidBy: paidBy.trim(),
           date,
-          notes: notes.trim() || undefined,
+          paymentMode: paymentMode || undefined,
+          paymentDetail: finalDetail,
         },
         editing?.id
       );
@@ -165,13 +219,13 @@ export default function ExpenseForm({
                 </label>
                 <input
                   className="glass-input"
-                  placeholder="e.g. Groceries, Petrol, Dinner"
+                  placeholder="e.g. Paid for groceries, Online shopping at Amazon"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   required
                 />
-                {!editing && recentTitles.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
+                {!editing && !suggestionsHidden && recentTitles.length > 0 && (
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     {recentTitles.slice(0, 4).map((t, i) => {
                       const color = SUGGESTION_COLORS[i % SUGGESTION_COLORS.length];
                       const active = title.trim() === t;
@@ -199,6 +253,15 @@ export default function ExpenseForm({
                         </button>
                       );
                     })}
+                    {/* Dismiss the suggestion chips for this entry. */}
+                    <button
+                      type="button"
+                      onClick={() => setSuggestionsHidden(true)}
+                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-white/45 transition hover:text-white/80"
+                      aria-label="Clear suggestions"
+                    >
+                      <X className="h-3 w-3" /> Clear
+                    </button>
                   </div>
                 )}
               </div>
@@ -314,14 +377,77 @@ export default function ExpenseForm({
 
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-white/60">
-                  Notes (optional)
+                  Payment mode (optional)
                 </label>
-                <input
-                  className="glass-input"
-                  placeholder="Anything worth remembering"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                />
+                <div className="flex flex-wrap gap-2">
+                  {PAYMENT_MODES.map((m) => (
+                    <button
+                      type="button"
+                      key={m}
+                      // Tap toggles: tapping the selected mode again clears it.
+                      onClick={() => {
+                        setPaymentMode((prev) => (prev === m ? "" : m));
+                        // Switching mode invalidates any picked provider.
+                        setProviderChoice("");
+                        setCustomProvider("");
+                      }}
+                      title="Tap again to clear"
+                      className={cn(
+                        "pill select-none transition",
+                        paymentMode === m
+                          ? "font-semibold text-white ring-2 ring-white/60"
+                          : "opacity-70 hover:opacity-100"
+                      )}
+                      style={
+                        paymentMode === m
+                          ? {
+                              background: PAYMENT_MODE_COLORS[m] + "40",
+                              borderColor: PAYMENT_MODE_COLORS[m],
+                            }
+                          : undefined
+                      }
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Provider dropdown — only for UPI/Card (Cash needs no detail).
+                    Options adapt to the space's currency. */}
+                {paymentMode && paymentMode !== "Cash" && (
+                  <div className="mt-2 space-y-2">
+                    <select
+                      className="glass-input"
+                      value={providerChoice}
+                      onChange={(e) => setProviderChoice(e.target.value)}
+                    >
+                      <option value="">
+                        {paymentMode === "UPI" ? "Select app…" : "Select bank…"}
+                      </option>
+                      {providerOptions.map((p) => (
+                        <option key={p} value={p}>
+                          {p}
+                        </option>
+                      ))}
+                      <option value={OTHER_PROVIDER}>Other…</option>
+                    </select>
+
+                    {providerChoice === OTHER_PROVIDER && (
+                      <input
+                        className="glass-input"
+                        placeholder={
+                          paymentMode === "UPI"
+                            ? "Enter app name"
+                            : "Enter bank / card name"
+                        }
+                        value={customProvider}
+                        onChange={(e) => setCustomProvider(e.target.value)}
+                        maxLength={40}
+                        autoFocus
+                      />
+                    )}
+                  </div>
+                )}
               </div>
 
               {error && (

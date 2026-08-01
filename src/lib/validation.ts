@@ -19,12 +19,22 @@ export const expenseSchema = z.object({
     .number({ invalid_type_error: "Amount must be a number" })
     .positive("Amount must be greater than 0")
     .max(100_000_000, "Amount is too large"),
-  paidBy: z.string().trim().min(1, "Paid By is required").max(40),
+  paidBy: z
+    .string()
+    .trim()
+    .min(1, "Paid By is required")
+    .max(40)
+    // Must be a name: at least one letter (digits allowed, but not digits-only).
+    .refine((v) => /[a-zA-Z]/.test(v), "Paid by should include a name, not just numbers"),
   // ISO date string (YYYY-MM-DD) or full ISO datetime.
   date: z
     .string()
     .refine((v) => !Number.isNaN(Date.parse(v)), "Invalid date"),
   notes: z.string().trim().max(280).optional().or(z.literal("")),
+  // Optional payment info. Mode is constrained to the three known modes; detail
+  // is a free-ish provider/bank label (or a custom "Other" value).
+  paymentMode: z.enum(["Cash", "UPI", "Card"]).optional().or(z.literal("")),
+  paymentDetail: z.string().trim().max(40).optional().or(z.literal("")),
 });
 
 const nameField = z.string().trim().min(2, "Name must be at least 2 characters").max(40, "Name is too long");

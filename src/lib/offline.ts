@@ -162,6 +162,8 @@ export function draftToExpense(draft: ExpenseDraft, base?: Expense): Expense {
     paidBy: draft.paidBy,
     date: new Date(draft.date).toISOString(),
     notes: draft.notes ? draft.notes : null,
+    paymentMode: draft.paymentMode ? draft.paymentMode : null,
+    paymentDetail: draft.paymentDetail ? draft.paymentDetail : null,
     createdAt: base?.createdAt ?? now,
     updatedAt: now,
   };

@@ -4,6 +4,7 @@ import { Pencil } from "lucide-react";
 import type { Expense } from "@/lib/types";
 import { categoryMeta } from "@/lib/categories";
 import { useCurrency } from "@/lib/currency";
+import { paymentLabel } from "@/lib/payments";
 
 function groupByDay(expenses: Expense[]): [string, Expense[]][] {
   const map = new Map<string, Expense[]>();
@@ -84,6 +85,9 @@ export default function ExpenseList({
                       <p className="truncate font-medium">{e.title}</p>
                       <p className="truncate text-xs text-white/55">
                         {e.category} · {e.paidBy}
+                        {paymentLabel(e.paymentMode, e.paymentDetail)
+                          ? ` · ${paymentLabel(e.paymentMode, e.paymentDetail)}`
+                          : ""}
                         {e.notes ? ` · ${e.notes}` : ""}
                       </p>
                     </div>

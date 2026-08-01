@@ -270,7 +270,9 @@ export default function Dashboard({
         e.title.toLowerCase().includes(q) ||
         e.category.toLowerCase().includes(q) ||
         e.paidBy.toLowerCase().includes(q) ||
-        (e.notes ?? "").toLowerCase().includes(q)
+        (e.notes ?? "").toLowerCase().includes(q) ||
+        (e.paymentMode ?? "").toLowerCase().includes(q) ||
+        (e.paymentDetail ?? "").toLowerCase().includes(q)
       );
     });
   }, [filtered, query, catFilter]);

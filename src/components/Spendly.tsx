@@ -76,9 +76,16 @@ export default function Spendly() {
       if (fresh) setExpenses(fresh);
       // `undefined` means the server value wasn't touched this run — leave state.
       if (freshBudget !== undefined) setBudget(freshBudget);
+      // The server responded, so we're definitely online. This self-heals a
+      // stuck "Offline" badge left over from a transient startup failure (the
+      // browser's `online` event won't fire if navigator never actually dropped).
+      setOnline(true);
     } catch {
       /* offline or server error — keep the local cache and queued writes */
       ok = false;
+      // Only show the Offline banner for a genuine network drop. A reachable-but-
+      // erroring server is surfaced by the red sync state instead.
+      if (typeof navigator !== "undefined" && !navigator.onLine) setOnline(false);
     } finally {
       setSyncing(false);
       setSyncError(!ok); // green on success, red on failure
@@ -200,12 +207,15 @@ export default function Spendly() {
       } catch {
         // Offline / server unreachable. Keep the optimistic cache if we already
         // painted one; otherwise try the last space's cache before giving up.
+        // Only flag "Offline" for a real network drop; a transient/cold server
+        // shouldn't leave a permanently stuck banner while the device is online.
+        const netDown = typeof navigator !== "undefined" && !navigator.onLine;
         if (hasLocal) {
-          setOnline(false);
+          if (netDown) setOnline(false);
         } else {
           const l = getLastSpace();
           if (l && readCache(l).length) {
-            setOnline(false);
+            if (netDown) setOnline(false);
             setName(l);
             setStatus("authed");
             setExpenses(readCache(l));

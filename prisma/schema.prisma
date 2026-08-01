@@ -58,6 +58,10 @@ model Expense {
   paidBy    String
   date      DateTime // the day the expense happened
   notes     String?
+  // How it was paid. paymentMode is one of Cash/UPI/Card; paymentDetail is the
+  // provider/bank (e.g. "Google Pay", "HDFC") or a custom value. Both optional.
+  paymentMode   String?
+  paymentDetail String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

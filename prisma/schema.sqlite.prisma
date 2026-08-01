@@ -50,6 +50,8 @@ model Expense {
   paidBy   String
   date     DateTime
   notes    String?
+  paymentMode   String?
+  paymentDetail String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
