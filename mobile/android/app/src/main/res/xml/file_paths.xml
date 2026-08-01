@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Matches RNFS.ExternalDirectoryPath + "/updates" where the APK is saved. -->
+    <external-files-path name="updates" path="updates/" />
+    <cache-path name="cache" path="." />
+</paths>

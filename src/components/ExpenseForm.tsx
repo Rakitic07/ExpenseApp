@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { X, Check, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { X, Check, Trash2, ChevronDown, ChevronUp, Camera, Image as ImageIcon } from "lucide-react";
 import { CATEGORIES, CATEGORY_NAMES } from "@/lib/categories";
+import { scanBillFromFile } from "@/lib/scanBill";
+import { isMobileDevice } from "@/lib/platform";
 
 // On phones we show only the first TOP_COUNT categories + "Other" by default;
 // the rest live behind a "More categories" toggle. The web app shows them all.
@@ -72,6 +74,25 @@ export default function ExpenseForm({
   const [suggestionsHidden, setSuggestionsHidden] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Bill scanning (camera → OCR → prefill). Thumbnail is a tiny (~10KB) JPEG.
+  const [thumbnail, setThumbnail] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanNote, setScanNote] = useState<string | null>(null);
+  // Full-size lightbox for the (tiny) bill thumbnail — scans and edits alike.
+  const [viewer, setViewer] = useState(false);
+  // The camera-capture button makes sense on any phone/tablet (PWA, native, or
+  // mobile browser) with a rear camera. Desktop browsers just get "Choose from
+  // Gallery" — a capture button there would only open a file dialog anyway.
+  const [showCamera, setShowCamera] = useState(false);
+  useEffect(() => {
+    setShowCamera(isMobileDevice());
+  }, []);
+  // Fields the scan auto-filled, highlighted so the user knows what to verify.
+  const [hi, setHi] = useState<Record<string, boolean>>({});
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const clearHi = (k: string) =>
+    setHi((h) => (h[k] ? { ...h, [k]: false } : h));
 
   // Provider options depend on the payment mode AND the space's currency, so an
   // INR user sees Google Pay/PhonePe while a USD user sees Apple Pay/Venmo, etc.
@@ -111,6 +132,7 @@ export default function ExpenseForm({
         setProviderChoice("");
         setCustomProvider("");
       }
+      setThumbnail(editing.thumbnail ?? null);
     } else {
       setTitle("");
       setCategory(CATEGORIES[0].name);
@@ -122,10 +144,81 @@ export default function ExpenseForm({
       setPaymentMode("");
       setProviderChoice("");
       setCustomProvider("");
+      setThumbnail(null);
     }
     setSuggestionsHidden(false);
+    setScanNote(null);
+    setHi({});
     setError(null);
   }, [open, editing, currency.code]);
+
+  // Apply a scanned bill: prefill whatever we could read. The form is the
+  // editable preview, so the user completes anything missing before saving.
+  async function onFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    // Reset so picking the same file again re-triggers change.
+    e.target.value = "";
+    if (!file) return;
+    setScanning(true);
+    setScanNote(null);
+    setError(null);
+    try {
+      const { parsed, thumbnail: thumb } = await scanBillFromFile(file);
+      setThumbnail(thumb);
+      const marks: Record<string, boolean> = {};
+      // Browser OCR (tesseract) is best-effort. Only trust the read when a
+      // meaningful field — amount or date — came through; otherwise a lone
+      // "title" is almost always OCR noise (e.g. "REE"), so we skip prefilling
+      // it and tell the user to enter details manually.
+      const strong = parsed.amount != null || !!parsed.date;
+      if (strong && parsed.title) {
+        setTitle(parsed.title);
+        marks.title = true;
+      }
+      if (parsed.amount != null) {
+        setAmount(String(parsed.amount));
+        marks.amount = true;
+      }
+      if (parsed.date) {
+        setDate(parsed.date);
+        marks.date = true;
+      }
+      if (strong && parsed.category && CATEGORY_NAMES.includes(parsed.category)) {
+        setCategory(parsed.category);
+        setCustomCategory("");
+        setCatsExpanded(isExtraCategory(parsed.category));
+        marks.category = true;
+      }
+      if (strong && parsed.paymentMode) {
+        setPaymentMode(parsed.paymentMode);
+        marks.payment = true;
+        const list = paymentProviders(parsed.paymentMode, currency.code);
+        const match = parsed.paymentDetail
+          ? list.find((x) => x.toLowerCase() === parsed.paymentDetail!.toLowerCase())
+          : undefined;
+        if (match) {
+          setProviderChoice(match);
+          setCustomProvider("");
+        } else if (parsed.paymentDetail) {
+          setProviderChoice(OTHER_PROVIDER);
+          setCustomProvider(parsed.paymentDetail);
+        } else {
+          setProviderChoice("");
+          setCustomProvider("");
+        }
+      }
+      setHi(marks);
+      setScanNote(
+        strong
+          ? "Bill fetched — auto-detected details can sometimes be wrong (especially the amount, which may pick a line item). Please review carefully, fix the highlighted fields, then add."
+          : "Bill attached, but browser scanning couldn’t read the details reliably — please enter them manually. (The mobile app reads bills far more accurately.)"
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not scan the bill.");
+    } finally {
+      setScanning(false);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -167,6 +260,7 @@ export default function ExpenseForm({
           date,
           paymentMode: paymentMode || undefined,
           paymentDetail: finalDetail,
+          thumbnail: thumbnail || undefined,
         },
         editing?.id
       );
@@ -199,6 +293,13 @@ export default function ExpenseForm({
               the real cause of the slow, laggy open. A single quick fade on the
               wrapper above is all the motion we need. */}
           <div className="glass-strong relative z-10 max-h-[92vh] w-full overflow-y-auto rounded-t-4xl p-6 sm:max-w-lg sm:rounded-4xl">
+            {scanning && (
+              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 rounded-t-4xl bg-black/70 sm:rounded-4xl">
+                <div className="h-9 w-9 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                <p className="text-sm font-semibold">Reading bill…</p>
+                <p className="text-xs text-white/60">Extracting details in your browser</p>
+              </div>
+            )}
             <div className="mb-5 flex items-center justify-between">
               <h3 className="text-lg font-semibold">
                 {editing ? "Edit expense" : "Add expense"}
@@ -213,15 +314,87 @@ export default function ExpenseForm({
             </div>
 
             <form onSubmit={submit} className="space-y-4">
+              {/* Scan a bill: capture (camera, PWA only) or pick from gallery.
+                  OCR runs fully in the browser and prefills the fields below. */}
+              {showCamera && (
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={onFileSelected}
+                />
+              )}
+              <input
+                ref={galleryInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={onFileSelected}
+              />
+              <div className={cn("grid gap-2", showCamera ? "grid-cols-2" : "grid-cols-1")}>
+                {showCamera && (
+                  <button
+                    type="button"
+                    onClick={() => cameraInputRef.current?.click()}
+                    disabled={scanning}
+                    className="glass-btn justify-center border-white/15 disabled:opacity-60"
+                  >
+                    <Camera className="h-4 w-4" />
+                    Scan a bill
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => galleryInputRef.current?.click()}
+                  disabled={scanning}
+                  className="glass-btn justify-center border-white/15 disabled:opacity-60"
+                >
+                  <ImageIcon className="h-4 w-4" />
+                  Choose from Gallery
+                </button>
+              </div>
+
+              {(thumbnail || scanNote) && (
+                <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-2.5">
+                  {thumbnail && (
+                    <div className="relative shrink-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={thumbnail}
+                        alt="Scanned bill preview"
+                        onClick={() => setViewer(true)}
+                        className="h-16 w-12 cursor-zoom-in rounded-lg border border-white/10 object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setThumbnail(null)}
+                        className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-red-500 text-white"
+                        aria-label="Remove bill preview"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
+                  <p className="text-xs leading-relaxed text-white/60">
+                    {scanNote || "Bill preview — click the image to view it larger."}
+                  </p>
+                </div>
+              )}
+
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-white/60">
                   What did you spend on?
                 </label>
                 <input
-                  className="glass-input"
+                  className={cn("glass-input", hi.title && "ring-2 ring-[#7c8cff] bg-[#7c8cff]/10")}
                   placeholder="e.g. Paid for groceries, Online shopping at Amazon"
                   value={title}
-                  onChange={(e) => setTitle(e.target.value)}
+                  onChange={(e) => {
+                    setTitle(e.target.value);
+                    clearHi("title");
+                  }}
                   required
                 />
                 {!editing && !suggestionsHidden && recentTitles.length > 0 && (
@@ -273,7 +446,8 @@ export default function ExpenseForm({
                 <div
                   className={cn(
                     "flex flex-wrap gap-2",
-                    !catsExpanded && "cats-collapsed"
+                    !catsExpanded && "cats-collapsed",
+                    hi.category && "rounded-2xl p-2 ring-2 ring-[#7c8cff] bg-[#7c8cff]/10"
                   )}
                 >
                   {CATEGORIES.map((c, i) => (
@@ -282,9 +456,10 @@ export default function ExpenseForm({
                       key={c.name}
                       // Tap toggles: tapping the selected category again clears it.
                       // (Works on touch devices, unlike double-click.)
-                      onClick={() =>
-                        setCategory((prev) => (prev === c.name ? "" : c.name))
-                      }
+                      onClick={() => {
+                        setCategory((prev) => (prev === c.name ? "" : c.name));
+                        clearHi("category");
+                      }}
                       title="Tap again to clear"
                       className={cn(
                         "pill select-none transition",
@@ -343,14 +518,17 @@ export default function ExpenseForm({
                     Amount ({currency.symbol})
                   </label>
                   <input
-                    className="glass-input"
+                    className={cn("glass-input", hi.amount && "ring-2 ring-[#7c8cff] bg-[#7c8cff]/10")}
                     type="number"
                     inputMode="decimal"
                     step="0.01"
                     min="0"
                     placeholder="0"
                     value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
+                    onChange={(e) => {
+                      setAmount(e.target.value);
+                      clearHi("amount");
+                    }}
                     required
                   />
                 </div>
@@ -358,7 +536,15 @@ export default function ExpenseForm({
                   <label className="mb-1.5 block text-xs font-medium text-white/60">
                     Date
                   </label>
-                  <DatePicker value={date} onChange={setDate} />
+                  <div className={cn(hi.date && "rounded-2xl p-1 ring-2 ring-[#7c8cff] bg-[#7c8cff]/10")}>
+                    <DatePicker
+                      value={date}
+                      onChange={(d) => {
+                        setDate(d);
+                        clearHi("date");
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -379,7 +565,12 @@ export default function ExpenseForm({
                 <label className="mb-1.5 block text-xs font-medium text-white/60">
                   Payment mode (optional)
                 </label>
-                <div className="flex flex-wrap gap-2">
+                <div
+                  className={cn(
+                    "flex flex-wrap gap-2",
+                    hi.payment && "rounded-2xl p-2 ring-2 ring-[#7c8cff] bg-[#7c8cff]/10"
+                  )}
+                >
                   {PAYMENT_MODES.map((m) => (
                     <button
                       type="button"
@@ -390,6 +581,7 @@ export default function ExpenseForm({
                         // Switching mode invalidates any picked provider.
                         setProviderChoice("");
                         setCustomProvider("");
+                        clearHi("payment");
                       }}
                       title="Tap again to clear"
                       className={cn(
@@ -486,6 +678,24 @@ export default function ExpenseForm({
               </div>
             </form>
           </div>
+
+          {/* Click-to-enlarge lightbox. The thumbnail is a tiny ~10KB JPEG so it
+              looks soft when zoomed — expected, since the full photo is never
+              stored. */}
+          {viewer && thumbnail && (
+            <div
+              className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/85 p-6"
+              onClick={() => setViewer(false)}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={thumbnail}
+                alt="Bill preview"
+                className="max-h-[75vh] max-w-full rounded-xl object-contain"
+              />
+              <p className="text-xs text-white/60">Click anywhere to close</p>
+            </div>
+          )}
         </motion.div>
       )}
     </AnimatePresence>

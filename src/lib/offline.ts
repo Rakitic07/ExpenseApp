@@ -91,6 +91,29 @@ export function getLastSync(space: string): number {
   return read<number>(syncedKey(space), 0);
 }
 
+// Re-attach thumbnails to a freshly pulled server list from the local cache so
+// the on-device preview survives even when the backend doesn't return the field
+// yet. `mapped` (tempId→realId) carries a brand-new row's thumbnail across its
+// id remap, since the cache still holds it under the temp id.
+function backfillThumbnails(
+  space: string,
+  server: Expense[],
+  mapped: Record<string, string> = {}
+): Expense[] {
+  const prev = readCache(space);
+  const byId = new Map<string, string>();
+  for (const e of prev) if (e.thumbnail) byId.set(e.id, e.thumbnail);
+  for (const [temp, real] of Object.entries(mapped)) {
+    const t = byId.get(temp);
+    if (t) byId.set(real, t);
+  }
+  return server.map((e) => {
+    if (e.thumbnail) return e;
+    const t = byId.get(e.id);
+    return t ? { ...e, thumbnail: t } : e;
+  });
+}
+
 function setLastSync(space: string, ts: number): void {
   write(syncedKey(space), ts);
 }
@@ -164,6 +187,7 @@ export function draftToExpense(draft: ExpenseDraft, base?: Expense): Expense {
     notes: draft.notes ? draft.notes : null,
     paymentMode: draft.paymentMode ? draft.paymentMode : null,
     paymentDetail: draft.paymentDetail ? draft.paymentDetail : null,
+    thumbnail: draft.thumbnail ? draft.thumbnail : (base?.thumbnail ?? null),
     createdAt: base?.createdAt ?? now,
     updatedAt: now,
   };
@@ -294,7 +318,11 @@ export async function sync(space: string): Promise<{
 
   if (ok && readQueue(space).length === 0) {
     const { expenses } = await api.listExpenses();
-    writeCache(space, expenses);
+    // Preserve thumbnails locally even if the server didn't echo them back
+    // (older deploy / column not yet migrated). Match by id, and also carry a
+    // just-created row's thumbnail across its temp→real id remap.
+    const merged = backfillThumbnails(space, expenses, mapped);
+    writeCache(space, merged);
     setLastSync(space, Date.now());
     // 3) Pull the budget too (unless we just pushed it) so other devices' edits
     //    show up on a manual sync without a full reload.
@@ -307,7 +335,7 @@ export async function sync(space: string): Promise<{
         /* ignore — budget stays as cached */
       }
     }
-    return { expenses, budget, mapped, ok: true };
+    return { expenses: merged, budget, mapped, ok: true };
   }
   return { expenses: null, budget, mapped, ok };
 }

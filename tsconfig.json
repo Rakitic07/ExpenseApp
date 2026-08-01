@@ -37,6 +37,7 @@
   ],
   "exclude": [
     "node_modules",
-    ".native-build-bak"
+    ".native-build-bak",
+    "mobile"
   ]
 }

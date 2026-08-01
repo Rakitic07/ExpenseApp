@@ -40,8 +40,17 @@ export async function PATCH(req: Request, { params }: Params) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const { title, category, amount, paidBy, date, notes, paymentMode, paymentDetail } =
-    parsed.data;
+  const {
+    title,
+    category,
+    amount,
+    paidBy,
+    date,
+    notes,
+    paymentMode,
+    paymentDetail,
+    thumbnail,
+  } = parsed.data;
   const expense = await prisma.expense.update({
     where: { id: existing.id },
     data: {
@@ -53,6 +62,7 @@ export async function PATCH(req: Request, { params }: Params) {
       notes: notes ? notes : null,
       paymentMode: paymentMode ? paymentMode : null,
       paymentDetail: paymentDetail ? paymentDetail : null,
+      thumbnail: thumbnail ? thumbnail : null,
     },
   });
 

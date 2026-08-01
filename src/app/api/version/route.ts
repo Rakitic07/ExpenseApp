@@ -56,8 +56,9 @@ async function latestAndroidFromGithub(): Promise<AndroidRelease | null> {
           Accept: "application/vnd.github+json",
           "User-Agent": "spendly-plus",
         },
-        // Cache for 5 minutes across requests (GitHub allows 60 calls/hr/IP).
-        next: { revalidate: 300 },
+        // Cache briefly across requests so a fresh upload is picked up quickly
+        // while staying well under GitHub's 60 calls/hr/IP unauthenticated cap.
+        next: { revalidate: 60 },
       }
     );
     if (!res.ok) return null;

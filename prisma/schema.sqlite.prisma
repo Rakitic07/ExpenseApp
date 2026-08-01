@@ -52,6 +52,8 @@ model Expense {
   notes    String?
   paymentMode   String?
   paymentDetail String?
+  // Tiny base64 JPEG thumbnail of a scanned bill (capped ~10KB). Preview only.
+  thumbnail String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

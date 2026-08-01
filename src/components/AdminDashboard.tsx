@@ -26,6 +26,9 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  HardDrive,
+  Paperclip,
+  ScanLine,
 } from "lucide-react";
 import { apiFetch } from "@/lib/http";
 
@@ -38,6 +41,23 @@ type Totals = {
   avgExpense: number;
   avgPerSpace: number;
 };
+type Storage = {
+  dbBytes: number;
+  expenseTableBytes: number;
+  limitBytes: number | null;
+  attachments: { count: number; totalBytes: number; avgBytes: number; maxBytes: number };
+  tables: { name: string; bytes: number }[];
+};
+type Ocr = {
+  configured: boolean;
+  countTotal: number;
+  countEngine1: number;
+  countEngine2: number;
+  countEngine3: number;
+  monthlyLimit: number;
+  engine3MonthlyLimit: number;
+  dailyRateLimit: number;
+};
 type Space = {
   id: string;
   name: string;
@@ -47,6 +67,8 @@ type Space = {
   total: number;
   firstDate: string | null;
   lastDate: string | null;
+  attachCount: number;
+  attachMonths: number; // month span covered by the space's attachments
 };
 type Cat = { category: string; count: number; total: number };
 type Payer = { payer: string; count: number; total: number };
@@ -81,6 +103,14 @@ type Creds = { databaseUrl: string; authSecret: string };
 /* ---------- helpers ---------- */
 
 const nf = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+
+function fmtBytes(n: number): string {
+  if (!n || n < 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+  const v = n / 1024 ** i;
+  return `${v.toLocaleString("en-IN", { maximumFractionDigits: v < 10 && i > 0 ? 1 : 0 })} ${units[i]}`;
+}
 
 function fmtDate(d: string | null) {
   if (!d) return "—";
@@ -126,6 +156,8 @@ export default function AdminDashboard({ open, onClose }: { open: boolean; onClo
   // unlocked state — creds kept only in memory for this session (never on disk)
   const [creds, setCreds] = useState<Creds | null>(null);
   const [totals, setTotals] = useState<Totals | null>(null);
+  const [storage, setStorage] = useState<Storage | null>(null);
+  const [ocr, setOcr] = useState<Ocr | null>(null);
 
   // per-tab lazy data
   const [tab, setTab] = useState<Tab>("spaces");
@@ -150,6 +182,8 @@ export default function AdminDashboard({ open, onClose }: { open: boolean; onClo
       setLoading(false);
       setCreds(null);
       setTotals(null);
+      setStorage(null);
+      setOcr(null);
       setTab("spaces");
       setSpaces(null);
       setCategories(null);
@@ -204,6 +238,8 @@ export default function AdminDashboard({ open, onClose }: { open: boolean; onClo
       const c: Creds = { databaseUrl: dbUrl, authSecret: secret };
       const ov = await runSection(c, "overview");
       setTotals(ov.totals as Totals);
+      setStorage((ov.storage ?? null) as Storage | null);
+      setOcr((ov.ocr ?? null) as Ocr | null);
       setCreds(c);
       setTab("spaces");
       // Load the first tab immediately; other tabs load on demand.
@@ -443,6 +479,12 @@ export default function AdminDashboard({ open, onClose }: { open: boolean; onClo
                   Amounts are currency-agnostic — currency is a per-device display setting and isn&apos;t stored.
                 </p>
 
+                {/* storage: DB usage + bill-thumbnail footprint */}
+                {storage && <StoragePanel s={storage} />}
+
+                {/* OCR.space usage — how much of the free scanning quota is left */}
+                {ocr && <OcrPanel o={ocr} />}
+
                 {/* tab bar */}
                 <div className="flex flex-wrap gap-1 rounded-2xl border border-white/10 bg-white/5 p-1 text-sm">
                   <TabBtn active={tab === "spaces"} onClick={() => openTab("spaces")} icon={<Layers className="h-3.5 w-3.5" />} label="Spaces" />
@@ -495,6 +537,200 @@ function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string
         {label}
       </div>
       <p className="text-xl font-semibold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+// A friendlier label for the app's Prisma tables in the breakdown.
+const TABLE_LABEL: Record<string, string> = {
+  Expense: "Expenses",
+  Ledger: "Spaces (ledgers)",
+  ResetRequest: "Reset requests",
+  _prisma_migrations: "Prisma migrations",
+};
+
+function StorageBreakdown({ s }: { s: Storage }) {
+  const rows = useMemo(() => {
+    const appTotal = s.tables.reduce((a, t) => a + t.bytes, 0);
+    const other = Math.max(0, s.dbBytes - appTotal);
+    const list = s.tables
+      .filter((t) => t.bytes > 0)
+      .map((t) => ({ name: TABLE_LABEL[t.name] ?? t.name, bytes: t.bytes }));
+    // Postgres system catalogs / WAL / free space not attributable to a table.
+    if (other > 0) list.push({ name: "System & catalogs", bytes: other });
+    list.sort((a, b) => b.bytes - a.bytes);
+    return list;
+  }, [s]);
+
+  const max = Math.max(1, ...rows.map((r) => r.bytes));
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+      <p className="mb-3 text-[11px] uppercase tracking-wide text-white/45">
+        Where the {fmtBytes(s.dbBytes)} goes
+      </p>
+      <div className="space-y-2.5">
+        {rows.map((r) => {
+          const shareOfDb = s.dbBytes > 0 ? (r.bytes / s.dbBytes) * 100 : 0;
+          const isOther = r.name === "System & catalogs";
+          return (
+            <div key={r.name}>
+              <div className="mb-1 flex items-center justify-between text-xs">
+                <span className="text-white/70">{r.name}</span>
+                <span className="tabular-nums text-white/50">
+                  {fmtBytes(r.bytes)} · {shareOfDb.toFixed(shareOfDb < 1 ? 1 : 0)}%
+                </span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-white/5">
+                <div
+                  className={`h-full rounded-full ${
+                    isOther
+                      ? "bg-gradient-to-r from-white/25 to-white/40"
+                      : "bg-gradient-to-r from-[#7c8cff] to-[#ff6bd0]"
+                  }`}
+                  style={{ width: `${(r.bytes / max) * 100}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-3 text-[11px] text-white/35">
+        A fresh Postgres database uses several MB for system catalogs and write-ahead logs even with
+        little data — so most of a small DB is baseline overhead, not your rows.
+      </p>
+    </div>
+  );
+}
+
+function StoragePanel({ s }: { s: Storage }) {
+  const used = s.dbBytes;
+  const limit = s.limitBytes;
+  const usedPct = limit ? Math.min(100, (used / limit) * 100) : null;
+  const attachPct = s.dbBytes > 0 ? Math.min(100, (s.attachments.totalBytes / s.dbBytes) * 100) : 0;
+
+  return (
+    <div className="space-y-3">
+    <div className="grid gap-3 sm:grid-cols-2">
+      {/* database size */}
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+        <div className="mb-2 flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-white/45">
+          <HardDrive className="h-3.5 w-3.5" />
+          Database storage
+        </div>
+        <p className="text-xl font-semibold tabular-nums">
+          {fmtBytes(used)}
+          {limit && <span className="text-sm font-normal text-white/45"> / {fmtBytes(limit)}</span>}
+        </p>
+        {usedPct !== null ? (
+          <>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/5">
+              <div
+                className={`h-full rounded-full ${
+                  usedPct > 90
+                    ? "bg-gradient-to-r from-[#ff6b6b] to-[#ff8787]"
+                    : "bg-gradient-to-r from-[#7c8cff] to-[#ff6bd0]"
+                }`}
+                style={{ width: `${usedPct}%` }}
+              />
+            </div>
+            <p className="mt-1.5 text-[11px] text-white/45">
+              {fmtBytes(Math.max(0, limit! - used))} left · {usedPct.toFixed(0)}% used
+            </p>
+          </>
+        ) : (
+          <p className="mt-1.5 text-[11px] text-white/40">
+            No plan cap set — Postgres has no innate limit. Set{" "}
+            <span className="text-white/60">ADMIN_STORAGE_LIMIT_MB</span> to track remaining space.
+          </p>
+        )}
+        <p className="mt-1 text-[11px] text-white/35">
+          Expense table: {fmtBytes(s.expenseTableBytes)}
+        </p>
+      </div>
+
+      {/* attachments (bill thumbnails) */}
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+        <div className="mb-2 flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-white/45">
+          <Paperclip className="h-3.5 w-3.5" />
+          Bill attachments
+        </div>
+        <p className="text-xl font-semibold tabular-nums">
+          {fmtBytes(s.attachments.totalBytes)}
+          <span className="text-sm font-normal text-white/45"> · {s.attachments.count} thumbs</span>
+        </p>
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/5" title="Share of DB used by thumbnails">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-[#38d9a9] to-[#7c8cff]"
+            style={{ width: `${attachPct}%` }}
+          />
+        </div>
+        <p className="mt-1.5 text-[11px] text-white/45">
+          {attachPct.toFixed(1)}% of the database
+        </p>
+        <p className="mt-1 text-[11px] text-white/35">
+          Avg {fmtBytes(s.attachments.avgBytes)} · Largest {fmtBytes(s.attachments.maxBytes)}
+        </p>
+      </div>
+    </div>
+
+      {/* detailed breakdown of where the DB size sits */}
+      <StorageBreakdown s={s} />
+    </div>
+  );
+}
+
+function OcrPanel({ o }: { o: Ocr }) {
+  const nfmt = (n: number) => n.toLocaleString("en-IN");
+  // Web scanning uses OCR Engine 2, so the monthly headroom that matters is the
+  // shared Engine 1+2 pool (25k on the free plan).
+  const usedMonthly = o.countEngine1 + o.countEngine2;
+  const leftMonthly = Math.max(0, o.monthlyLimit - usedMonthly);
+  const usedPct = o.monthlyLimit > 0 ? Math.min(100, (usedMonthly / o.monthlyLimit) * 100) : 0;
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+      <div className="mb-2 flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-white/45">
+        <ScanLine className="h-3.5 w-3.5 text-[#7c8cff]" />
+        Bill scanning (OCR.space)
+      </div>
+
+      {!o.configured ? (
+        <p className="text-[13px] text-white/55">
+          No <span className="text-white/70">OCRSPACE_API_KEY</span> set — web scanning falls back to
+          slower on-device OCR. Add the key in your env to enable accurate scanning and quota tracking.
+        </p>
+      ) : (
+        <>
+          <p className="text-xl font-semibold tabular-nums">
+            {nfmt(leftMonthly)}
+            <span className="text-sm font-normal text-white/45"> scans left this month</span>
+          </p>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/5" title="Monthly quota used">
+            <div
+              className={`h-full rounded-full ${
+                usedPct > 90
+                  ? "bg-gradient-to-r from-[#ff6b6b] to-[#ff8787]"
+                  : "bg-gradient-to-r from-[#7c8cff] to-[#ff6bd0]"
+              }`}
+              style={{ width: `${usedPct}%` }}
+            />
+          </div>
+          <p className="mt-1.5 text-[11px] text-white/45">
+            {nfmt(usedMonthly)} / {nfmt(o.monthlyLimit)} used · {usedPct.toFixed(1)}%
+          </p>
+          <p className="mt-2 text-[11px] text-white/35">
+            Rate limit: {nfmt(o.dailyRateLimit)} scans/day per IP. There is no hourly cap.
+            {o.countEngine3 > 0 && (
+              <> · Engine 3: {nfmt(o.countEngine3)} / {nfmt(o.engine3MonthlyLimit)}</>
+            )}
+          </p>
+          <p className="mt-1 text-[11px] text-white/30">
+            Figures are the OCR.space key&apos;s own conversion counters (this billing period).
+          </p>
+        </>
+      )}
     </div>
   );
 }
@@ -552,36 +788,63 @@ function Pager({
   );
 }
 
+// Average bill uploads per month for a space (0 when it has none).
+function attachPerMonth(s: Space): number {
+  if (!s.attachCount) return 0;
+  const months = s.attachMonths > 0 ? s.attachMonths : 1;
+  return s.attachCount / months;
+}
+
 function SpacesTab({ data, onPage }: { data: Paged<Space> | null; onPage: (p: number) => void }) {
   if (!data) return null;
   return (
     <div>
       <div className="overflow-x-auto rounded-2xl border border-white/10">
-        <table className="w-full min-w-[560px] text-left text-sm">
+        <table className="w-full min-w-[680px] text-left text-sm">
           <thead className="bg-white/5 text-[11px] uppercase tracking-wide text-white/45">
             <tr>
               <th className="px-3 py-2">Name</th>
               <th className="px-3 py-2 text-right">Expenses</th>
               <th className="px-3 py-2 text-right">Total</th>
-              <th className="px-3 py-2 text-right">Budget</th>
+              <th className="px-3 py-2 text-right">Bills</th>
+              <th className="px-3 py-2 text-right">Bills/mo</th>
               <th className="px-3 py-2">Created</th>
               <th className="px-3 py-2">Activity</th>
             </tr>
           </thead>
           <tbody>
-            {data.items.map((s) => (
-              <tr key={s.id} className="border-t border-white/5">
-                <td className="px-3 py-2 font-medium">{s.name}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{s.expenseCount}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{nf(s.total)}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-white/60">{s.budget != null ? nf(s.budget) : "—"}</td>
-                <td className="px-3 py-2 text-white/60">{fmtDate(s.createdAt)}</td>
-                <td className="px-3 py-2 text-white/60">{s.firstDate ? `${fmtDate(s.firstDate)} → ${fmtDate(s.lastDate)}` : "—"}</td>
-              </tr>
-            ))}
+            {data.items.map((s) => {
+              const perMo = attachPerMonth(s);
+              return (
+                <tr key={s.id} className="border-t border-white/5">
+                  <td className="px-3 py-2 font-medium">{s.name}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{s.expenseCount}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{nf(s.total)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {s.attachCount > 0 ? (
+                      <span className="inline-flex items-center gap-1 text-white/85">
+                        <Paperclip className="h-3 w-3 text-[#7c8cff]" />
+                        {s.attachCount}
+                      </span>
+                    ) : (
+                      <span className="text-white/30">—</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-white/60">
+                    {perMo > 0 ? perMo.toLocaleString("en-IN", { maximumFractionDigits: 1 }) : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-white/60">{fmtDate(s.createdAt)}</td>
+                  <td className="px-3 py-2 text-white/60">{s.firstDate ? `${fmtDate(s.firstDate)} → ${fmtDate(s.lastDate)}` : "—"}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+      <p className="mt-2 text-[11px] text-white/40">
+        Bills = expenses with a scanned thumbnail. Bills/mo is the average uploads per month across
+        the months a space has attachments.
+      </p>
       <Pager page={data.page} total={data.total} pageSize={data.pageSize} onPage={onPage} />
     </div>
   );

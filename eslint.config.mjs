@@ -9,6 +9,7 @@ const eslintConfig = [
       "android/**",
       "ios/**",
       "native/**",
+      "mobile/**",
       "next-env.d.ts",
     ],
   },

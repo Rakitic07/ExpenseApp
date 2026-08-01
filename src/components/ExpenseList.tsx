@@ -75,12 +75,21 @@ export default function ExpenseList({
                     onClick={() => !readOnly && onEdit?.(e)}
                     className="glass group flex w-full items-center gap-3 rounded-2xl p-3 text-left transition hover:bg-white/[0.16]"
                   >
-                    <span
-                      className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-lg"
-                      style={{ background: meta.color + "33", border: `1px solid ${meta.color}55` }}
-                    >
-                      {meta.emoji}
-                    </span>
+                    {e.thumbnail ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={e.thumbnail}
+                        alt="Bill"
+                        className="h-11 w-11 shrink-0 rounded-xl border border-white/15 object-cover"
+                      />
+                    ) : (
+                      <span
+                        className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-lg"
+                        style={{ background: meta.color + "33", border: `1px solid ${meta.color}55` }}
+                      >
+                        {meta.emoji}
+                      </span>
+                    )}
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium">{e.title}</p>
                       <p className="truncate text-xs text-white/55">

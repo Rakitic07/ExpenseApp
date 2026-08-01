@@ -35,6 +35,16 @@ export const expenseSchema = z.object({
   // is a free-ish provider/bank label (or a custom "Other" value).
   paymentMode: z.enum(["Cash", "UPI", "Card"]).optional().or(z.literal("")),
   paymentDetail: z.string().trim().max(40).optional().or(z.literal("")),
+  // Tiny base64 JPEG data URL of a scanned bill (preview only). Hard-capped so a
+  // full-resolution photo can never be smuggled into the DB. ~20k chars ≈ 15KB.
+  // Base64 JPEG data URL of a scanned bill (preview only). Hard-capped so a
+  // full-resolution photo can never be smuggled into the DB. base64 grows ~4/3,
+  // so ~140k chars ≈ 105KB of image bytes (target thumbnail is 50–100KB).
+  thumbnail: z
+    .string()
+    .max(140000, "Thumbnail too large")
+    .optional()
+    .or(z.literal("")),
 });
 
 const nameField = z.string().trim().min(2, "Name must be at least 2 characters").max(40, "Name is too long");

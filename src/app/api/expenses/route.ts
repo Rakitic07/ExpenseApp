@@ -41,8 +41,17 @@ export async function POST(req: Request) {
     );
   }
 
-  const { title, category, amount, paidBy, date, notes, paymentMode, paymentDetail } =
-    parsed.data;
+  const {
+    title,
+    category,
+    amount,
+    paidBy,
+    date,
+    notes,
+    paymentMode,
+    paymentDetail,
+    thumbnail,
+  } = parsed.data;
   const expense = await prisma.expense.create({
     data: {
       ledgerId: session.ledgerId,
@@ -54,6 +63,7 @@ export async function POST(req: Request) {
       notes: notes ? notes : null,
       paymentMode: paymentMode ? paymentMode : null,
       paymentDetail: paymentDetail ? paymentDetail : null,
+      thumbnail: thumbnail ? thumbnail : null,
     },
   });
 

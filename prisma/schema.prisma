@@ -63,6 +63,11 @@ model Expense {
   paymentMode   String?
   paymentDetail String?
 
+  // Optional TINY thumbnail (base64 JPEG data URL, capped ~10KB) of a scanned
+  // bill, kept only for a small preview when editing. The full photo is never
+  // stored anywhere — not the DB, not the device.
+  thumbnail String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
