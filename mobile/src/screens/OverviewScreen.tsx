@@ -11,10 +11,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Download } from 'lucide-react-native';
+import { Download, AlertTriangle } from 'lucide-react-native';
 import { useStore } from '../state/store';
 import { usePeriod } from '../state/period';
 import { useCurrency } from '../lib/currency';
+import { useSettings } from '../lib/settings';
 import { inDay, sum, byCategory, filterByPeriod, periodLabel } from '../lib/analytics';
 import { AppHeader } from '../components/AppHeader';
 import { PeriodBar } from '../components/PeriodBar';
@@ -39,6 +40,7 @@ export function OverviewScreen() {
   const { expenses, budget, name, saveBudget } = useStore();
   const { view, year, month, day } = usePeriod();
   const { format } = useCurrency();
+  const { settings } = useSettings();
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [budgetModal, setBudgetModal] = useState(false);
   const [budgetInput, setBudgetInput] = useState('');
@@ -101,6 +103,17 @@ export function OverviewScreen() {
             </Pressable>
           </View>
         </Card>
+
+        {settings.budgetAlerts && isMonth && budget != null && budget > 0 && periodTotal >= budget * 0.9 && (
+          <View style={[styles.alert, periodTotal > budget ? styles.alertOver : styles.alertNear]}>
+            <AlertTriangle size={16} color={periodTotal > budget ? colors.red : colors.amber} />
+            <Text style={styles.alertText}>
+              {periodTotal > budget
+                ? `You're ${format(periodTotal - budget)} over your monthly budget.`
+                : `You've used ${Math.round((periodTotal / budget) * 100)}% of your monthly budget.`}
+            </Text>
+          </View>
+        )}
 
         {topCats.length > 0 && (
           <Card style={{ marginTop: spacing.md }}>
@@ -189,6 +202,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   budgetBtnText: { color: colors.text, fontSize: font.small, fontWeight: '700' },
+  alert: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  alertNear: { backgroundColor: colors.amber + '1a', borderColor: colors.amber + '55' },
+  alertOver: { backgroundColor: colors.red + '1a', borderColor: colors.red + '55' },
+  alertText: { flex: 1, color: colors.text, fontSize: font.small, fontWeight: '600' },
   sectionTitle: { color: colors.text, fontSize: font.h3, fontWeight: '800', marginBottom: spacing.sm },
   catRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
   catHead: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },

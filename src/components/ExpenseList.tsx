@@ -4,6 +4,7 @@ import { Pencil } from "lucide-react";
 import type { Expense } from "@/lib/types";
 import { categoryMeta } from "@/lib/categories";
 import { useCurrency } from "@/lib/currency";
+import { useSettings } from "@/lib/settings";
 import { paymentLabel } from "@/lib/payments";
 
 function groupByDay(expenses: Expense[]): [string, Expense[]][] {
@@ -41,6 +42,7 @@ export default function ExpenseList({
   readOnly?: boolean;
 }) {
   const { format } = useCurrency();
+  const { settings } = useSettings();
 
   if (expenses.length === 0) {
     return (
@@ -75,7 +77,7 @@ export default function ExpenseList({
                     onClick={() => !readOnly && onEdit?.(e)}
                     className="glass group flex w-full items-center gap-3 rounded-2xl p-3 text-left transition hover:bg-white/[0.16]"
                   >
-                    {e.thumbnail ? (
+                    {e.thumbnail && settings.showThumbnails ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={e.thumbnail}

@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { AnimatePresence, motion } from "framer-motion";
-import { Plus, LogOut, Sparkles, Wallet, ShieldCheck, PartyPopper, Github, Shield, Download, LayoutGrid, PieChart, ReceiptText } from "lucide-react";
+import { Plus, LogOut, Sparkles, Wallet, ShieldCheck, PartyPopper, Github, Shield, Download, LayoutGrid, PieChart, ReceiptText, Settings } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Expense, ExpenseDraft } from "@/lib/types";
 import { CurrencyProvider, formatFor } from "@/lib/currency";
+import { SettingsProvider } from "@/lib/settings";
 import { isNativeApp } from "@/lib/platform";
 import { startPerfLogging } from "@/lib/perf";
 import {
@@ -31,11 +33,15 @@ import Dashboard from "./Dashboard";
 import ExpenseForm from "./ExpenseForm";
 import CurrencySelect from "./CurrencySelect";
 import SyncButton from "./SyncButton";
-import AdminDashboard from "./AdminDashboard";
+// The admin dashboard is heavy (its own tables/queries) and only ever opened
+// from the landing-page footer, so it's code-split out of the initial bundle
+// and only mounted after the first open — keeping first paint fast.
+const AdminDashboard = dynamic(() => import("./AdminDashboard"), { ssr: false });
 import UpdatePrompt from "./UpdatePrompt";
 import UpdateDebugBadge from "./UpdateDebugBadge";
 import CheckUpdatesButton from "./CheckUpdatesButton";
 import DownloadLogsButton from "./DownloadLogsButton";
+import SettingsSheet from "./SettingsSheet";
 import { ShimmerText } from "./Shimmer";
 
 type Status = "loading" | "guest" | "authed";
@@ -55,6 +61,10 @@ export default function Spendly() {
   const [isIOS, setIsIOS] = useState(false);
   const [isNative, setIsNative] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
+  // Latch: once the admin panel is opened we keep it mounted so its open/close
+  // animation stays smooth, but its chunk never loads unless it's actually used.
+  const [adminLoaded, setAdminLoaded] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // Which dashboard section the mobile bottom-nav is showing (desktop ignores it).
   const [mobileTab, setMobileTab] = useState<"overview" | "charts" | "activity">("overview");
 
@@ -358,6 +368,7 @@ export default function Spendly() {
 
   return (
     <CurrencyProvider space={name}>
+    <SettingsProvider key={name || "guest"} space={name}>
     <main className="relative min-h-screen">
       <Background />
 
@@ -369,9 +380,12 @@ export default function Spendly() {
       <div
         className="mx-auto w-full max-w-6xl px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-[calc(env(safe-area-inset-top)+1.5rem)] sm:px-6 sm:pb-[calc(env(safe-area-inset-bottom)+2.5rem)] sm:pt-[calc(env(safe-area-inset-top)+2.5rem)]"
       >
-        {/* Header */}
-        <header className="mb-8 flex items-center justify-between gap-2">
-          <div className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3">
+        {/* Header — stacks on phones so the brand + space name get the full
+            width (never squeezed to "…" by the controls), and collapses back to
+            a single row from `sm` up. This keeps the space name readable on any
+            screen size, including narrow iPhones in installed-PWA mode. */}
+        <header className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+          <div className="flex min-w-0 items-center gap-2.5 sm:flex-1 sm:gap-3">
             <div className="grid h-9 w-9 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-[#7c8cff] to-[#ff6bd0] shadow-glow sm:h-11 sm:w-11">
               <Wallet className="h-4 w-4 sm:h-5 sm:w-5" />
             </div>
@@ -379,7 +393,7 @@ export default function Spendly() {
               {/* `truncate` keeps the name on one line — otherwise "Spendly-Plus"
                   breaks at the hyphen on narrow iPhones and squeezes the space
                   name into an ellipsis. */}
-              <h1 className="truncate text-sm font-semibold leading-tight sm:text-lg">
+              <h1 className="shimmer-hover truncate text-base font-semibold leading-tight sm:text-lg">
                 Spendly-Plus
               </h1>
               <p className="truncate text-xs text-white/50">
@@ -390,7 +404,7 @@ export default function Spendly() {
 
           {status === "authed" && (
             <div
-              className={`flex shrink-0 items-center gap-1.5 sm:gap-2 ${
+              className={`flex shrink-0 flex-wrap items-center gap-1.5 sm:flex-nowrap sm:gap-2 ${
                 isIOS ? "ios-compact" : ""
               }`}
             >
@@ -403,16 +417,24 @@ export default function Spendly() {
               />
               <CurrencySelect />
               <button
+                onClick={() => setSettingsOpen(true)}
+                className="glass-btn px-3 py-2.5"
+                aria-label="Space settings"
+                title="Space settings"
+              >
+                <Settings className="h-4 w-4" />
+              </button>
+              <button
                 onClick={() => {
                   setEditing(null);
                   setFormOpen(true);
                 }}
-                className={`glass-btn-primary px-3 py-2.5 sm:px-4 ${
+                className={`glass-btn-primary px-4 py-2.5 ${
                   isNative ? "hidden sm:flex" : "flex"
                 }`}
               >
                 <Plus className="h-4 w-4" />
-                <span className="hidden sm:inline">Add expense</span>
+                <span>Add expense</span>
               </button>
               <button onClick={handleLogout} className="glass-btn px-3 py-2.5" aria-label="Lock space">
                 <LogOut className="h-4 w-4" />
@@ -561,7 +583,10 @@ export default function Spendly() {
               {isNative && <DownloadLogsButton />}
               <button
                 type="button"
-                onClick={() => setAdminOpen(true)}
+                onClick={() => {
+                  setAdminLoaded(true);
+                  setAdminOpen(true);
+                }}
                 aria-label="Open admin dashboard"
                 title="Admin dashboard (owner only)"
                 className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-white/50 transition hover:bg-white/10 hover:text-white/80"
@@ -630,8 +655,12 @@ export default function Spendly() {
       {/* Native-only: brief "installed vs latest APK sha" badge on launch. */}
       <UpdateDebugBadge />
 
-      <AdminDashboard open={adminOpen} onClose={() => setAdminOpen(false)} />
+      {adminLoaded && (
+        <AdminDashboard open={adminOpen} onClose={() => setAdminOpen(false)} />
+      )}
+      <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </main>
+    </SettingsProvider>
     </CurrencyProvider>
   );
 }

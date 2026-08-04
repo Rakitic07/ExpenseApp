@@ -1,9 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Search } from 'lucide-react-native';
+import { Search, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { useStore } from '../state/store';
 import { usePeriod } from '../state/period';
 import { useCurrency } from '../lib/currency';
@@ -51,6 +51,31 @@ export function ActivityScreen() {
   }, [scoped, query, catFilter]);
 
   const total = useMemo(() => filtered.reduce((a, e) => a + e.amount, 0), [filtered]);
+
+  // Paginate at 10 rows/page. Reset to the first page whenever the result set
+  // changes (period / search / category) — done during render via a key ref so
+  // we avoid an effect that would flash the old page first.
+  const PAGE_SIZE = 10;
+  const listRef = useRef<FlatList<Expense>>(null);
+  const [page, setPage] = useState(0);
+  const resetKey = `${view}|${year}|${month}|${day}|${query.trim().toLowerCase()}|${catFilter}`;
+  const keyRef = useRef(resetKey);
+  if (keyRef.current !== resetKey) {
+    keyRef.current = resetKey;
+    if (page !== 0) setPage(0);
+  }
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageItems = useMemo(
+    () => filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE),
+    [filtered, safePage],
+  );
+
+  const goToPage = (next: number) => {
+    setPage(Math.min(Math.max(0, next), pageCount - 1));
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  };
 
   const renderItem = ({ item }: { item: Expense }) => (
     <ExpenseRow e={item} onPress={ex => nav.navigate('ExpenseForm', { expense: ex })} />
@@ -103,17 +128,56 @@ export function ActivityScreen() {
       )}
 
       <FlatList
-        data={filtered}
+        ref={listRef}
+        style={styles.listFlex}
+        data={pageItems}
         keyExtractor={e => e.id}
         renderItem={renderItem}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
-        initialNumToRender={12}
-        maxToRenderPerBatch={12}
-        windowSize={9}
+        initialNumToRender={PAGE_SIZE}
+        maxToRenderPerBatch={PAGE_SIZE}
+        windowSize={5}
         removeClippedSubviews
         ListEmptyComponent={<Text style={styles.empty}>Nothing here yet.</Text>}
       />
+
+      {pageCount > 1 && (
+        <View style={styles.pager}>
+          <Pressable
+            onPress={() => goToPage(safePage - 1)}
+            disabled={safePage === 0}
+            android_ripple={{ color: 'rgba(255,255,255,0.12)', borderless: true }}
+            style={[styles.pagerBtn, safePage === 0 && styles.pagerBtnDisabled]}>
+            <ChevronLeft size={18} color={safePage === 0 ? colors.textFaint : colors.text} />
+            <Text style={[styles.pagerBtnText, safePage === 0 && { color: colors.textFaint }]}>
+              Prev
+            </Text>
+          </Pressable>
+
+          <Text style={styles.pagerLabel}>
+            Page {safePage + 1} of {pageCount}
+          </Text>
+
+          <Pressable
+            onPress={() => goToPage(safePage + 1)}
+            disabled={safePage >= pageCount - 1}
+            android_ripple={{ color: 'rgba(255,255,255,0.12)', borderless: true }}
+            style={[styles.pagerBtn, safePage >= pageCount - 1 && styles.pagerBtnDisabled]}>
+            <Text
+              style={[
+                styles.pagerBtnText,
+                safePage >= pageCount - 1 && { color: colors.textFaint },
+              ]}>
+              Next
+            </Text>
+            <ChevronRight
+              size={18}
+              color={safePage >= pageCount - 1 ? colors.textFaint : colors.text}
+            />
+          </Pressable>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -185,6 +249,36 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   search: { flex: 1, color: colors.text, fontSize: font.body },
-  list: { paddingHorizontal: spacing.md, paddingBottom: 120 },
+  listFlex: { flex: 1 },
+  list: { paddingHorizontal: spacing.md, paddingBottom: spacing.md },
   empty: { color: colors.textFaint, textAlign: 'center', padding: spacing.xl },
+  pager: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingLeft: spacing.lg,
+    // The floating "+" button sits at right:18, width 62 → its left edge is
+    // always ~80px in from the screen edge. Pad the right so the "Next" button
+    // stops before the FAB instead of being hidden under it (any screen width).
+    paddingRight: 96,
+    paddingTop: spacing.sm,
+    // Clear the floating tab bar at the bottom.
+    paddingBottom: 96,
+  },
+  pagerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 9,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    minWidth: 92,
+    justifyContent: 'center',
+  },
+  pagerBtnDisabled: { opacity: 0.5 },
+  pagerBtnText: { color: colors.text, fontSize: font.small, fontWeight: '700' },
+  pagerLabel: { color: colors.textDim, fontSize: font.small, fontWeight: '600' },
 });

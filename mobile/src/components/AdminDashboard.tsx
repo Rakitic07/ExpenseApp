@@ -38,7 +38,6 @@ import {
   XCircle,
 } from 'lucide-react-native';
 import { api } from '../lib/api';
-import { ShimmerText } from './Shimmer';
 import { colors, font, radius, spacing } from '../theme';
 
 /* ---------- types (mirror the web admin) ---------- */
@@ -497,7 +496,7 @@ export function AdminDashboard({ open, onClose }: { open: boolean; onClose: () =
               <View style={{ minHeight: 160 }}>
                 {tabLoading ? (
                   <View style={styles.tabLoading}>
-                    <ShimmerText>Loading…</ShimmerText>
+                    <ActivityIndicator color={colors.primary} />
                   </View>
                 ) : tabError ? (
                   <ErrorBox msg={tabError} />

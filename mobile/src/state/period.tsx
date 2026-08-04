@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 import type { PeriodView } from '../lib/analytics';
+import { getSettingsSync } from '../lib/settings';
 
 type PeriodState = {
   view: PeriodView;
@@ -16,7 +17,9 @@ const Ctx = createContext<PeriodState | null>(null);
 
 export function PeriodProvider({ children }: { children: React.ReactNode }) {
   const now = new Date();
-  const [view, setView] = useState<PeriodView>('month');
+  // Seed from the space's saved default period (cache is warmed at login /
+  // bootstrap, before this provider mounts).
+  const [view, setView] = useState<PeriodView>(() => getSettingsSync().defaultPeriod);
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
   const [day, setDay] = useState(now.getDate());

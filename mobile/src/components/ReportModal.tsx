@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -29,7 +29,6 @@ import { generateReport } from '../lib/report';
 import type { ReportSectionKey } from '../lib/report';
 import { colors, font, radius, spacing } from '../theme';
 import { Button } from './ui';
-import { ShimmerText } from './Shimmer';
 
 const VIEWS: { key: PeriodView; label: string }[] = [
   { key: 'day', label: 'Day' },
@@ -100,6 +99,48 @@ export function ReportModal({ open, onClose }: { open: boolean; onClose: () => v
   const count = useMemo(
     () => filterByPeriod(expenses, view, year, month, day).length,
     [expenses, view, year, month, day],
+  );
+
+  const now = useMemo(() => new Date(), []);
+
+  // Months that actually have data in a given year. The current month is always
+  // offered (even with no data yet) so "This month" is a valid default; every
+  // other month only appears once at least one expense exists in it.
+  const monthsWithData = useCallback(
+    (yr: number): Set<number> => {
+      const set = new Set<number>();
+      for (const e of expenses) {
+        const d = new Date(e.date);
+        if (d.getFullYear() === yr) set.add(d.getMonth());
+      }
+      if (yr === now.getFullYear()) set.add(now.getMonth());
+      return set;
+    },
+    [expenses, now],
+  );
+
+  const monthItems = useMemo(() => {
+    const set = monthsWithData(year);
+    return MONTH_LABELS.map((label, value) => ({ label, value })).filter(o =>
+      set.has(o.value),
+    );
+  }, [monthsWithData, year]);
+
+  // When the year changes, keep the month selection valid: prefer the current
+  // month, else fall back to the latest month that has data that year.
+  const selectYear = useCallback(
+    (y: number) => {
+      setYear(y);
+      const set = monthsWithData(y);
+      if (!set.has(month) && set.size > 0) {
+        const next =
+          y === now.getFullYear() && set.has(now.getMonth())
+            ? now.getMonth()
+            : Math.max(...Array.from(set));
+        setMonth(next);
+      }
+    },
+    [monthsWithData, month, now],
   );
 
   // The trend chart section only applies when there's a series (not day view).
@@ -198,11 +239,7 @@ export function ReportModal({ open, onClose }: { open: boolean; onClose: () => v
             </View>
 
             {showMonth && (
-              <ChipRow
-                items={MONTH_LABELS.map((m, i) => ({ label: m, value: i }))}
-                value={month}
-                onSelect={setMonth}
-              />
+              <ChipRow items={monthItems} value={month} onSelect={setMonth} />
             )}
             {showDay && (
               <ChipRow
@@ -218,7 +255,7 @@ export function ReportModal({ open, onClose }: { open: boolean; onClose: () => v
               <ChipRow
                 items={years.map(y => ({ label: String(y), value: y }))}
                 value={year}
-                onSelect={setYear}
+                onSelect={selectYear}
               />
             )}
 
@@ -252,9 +289,9 @@ export function ReportModal({ open, onClose }: { open: boolean; onClose: () => v
           {busy && (
             <View style={styles.busyRow}>
               <Download size={14} color={colors.textDim} />
-              <ShimmerText style={styles.busyText}>
+              <Text style={styles.busyText}>
                 {`Building your ${format === 'pdf' ? 'PDF' : 'Excel'} on-device…`}
-              </ShimmerText>
+              </Text>
             </View>
           )}
         </View>
@@ -296,11 +333,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.6)',
   },
   sheet: {
-    backgroundColor: colors.bgElevated,
+    // Nearly-opaque so the sheet reads as a solid translucent panel (the old
+    // 0.72 chrome let too much of the screen bleed through and looked washed out).
+    backgroundColor: 'rgba(16,16,28,0.98)',
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     borderTopWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.borderStrong,
     padding: spacing.lg,
     paddingBottom: spacing.xl,
   },

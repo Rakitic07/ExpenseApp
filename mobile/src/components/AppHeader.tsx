@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { RefreshCw, LogOut, Check } from 'lucide-react-native';
+import { RefreshCw, LogOut, Check, Settings } from 'lucide-react-native';
 import { useStore } from '../state/store';
 import { CURRENCIES, useCurrency } from '../lib/currency';
+import { SettingsModal } from './SettingsModal';
 import { colors, font, radius, spacing } from '../theme';
 
 export function AppHeader({ title }: { title: string }) {
   const { online, syncing, refresh, logout } = useStore();
   const { currency, setCurrency } = useCurrency();
   const [picker, setPicker] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const dot = syncing ? colors.amber : online ? colors.green : colors.red;
 
@@ -21,6 +23,9 @@ export function AppHeader({ title }: { title: string }) {
       <View style={styles.actions}>
         <Pressable onPress={() => setPicker(true)} style={styles.chip}>
           <Text style={styles.chipText}>{currency.code}</Text>
+        </Pressable>
+        <Pressable onPress={() => setSettingsOpen(true)} hitSlop={8} style={styles.iconBtn}>
+          <Settings size={18} color={colors.textDim} />
         </Pressable>
         <Pressable onPress={refresh} hitSlop={8} style={styles.iconBtn}>
           <View style={[styles.syncDot, { backgroundColor: dot }]} />
@@ -52,6 +57,8 @@ export function AppHeader({ title }: { title: string }) {
           </View>
         </Pressable>
       </Modal>
+
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </View>
   );
 }

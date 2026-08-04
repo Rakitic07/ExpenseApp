@@ -6,6 +6,7 @@ import { X, Check, Trash2, ChevronDown, ChevronUp, Camera, Image as ImageIcon } 
 import { CATEGORIES, CATEGORY_NAMES } from "@/lib/categories";
 import { scanBillFromFile } from "@/lib/scanBill";
 import { isMobileDevice } from "@/lib/platform";
+import { useSettings } from "@/lib/settings";
 
 // On phones we show only the first TOP_COUNT categories + "Other" by default;
 // the rest live behind a "More categories" toggle. The web app shows them all.
@@ -57,6 +58,7 @@ export default function ExpenseForm({
   recentTitles?: string[];
 }) {
   const { currency } = useCurrency();
+  const { settings } = useSettings();
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState(CATEGORIES[0].name);
   // Free-text label shown only when the "Other" category is picked.
@@ -140,7 +142,7 @@ export default function ExpenseForm({
       setCustomCategory("");
       setCatsExpanded(false);
       setAmount("");
-      setPaidBy("");
+      setPaidBy(settings.defaultPayer);
       setDate(toDateInput());
       setPaymentMode("");
       setProviderChoice("");
@@ -151,7 +153,7 @@ export default function ExpenseForm({
     setScanNote(null);
     setHi({});
     setError(null);
-  }, [open, editing, currency.code]);
+  }, [open, editing, currency.code, settings.defaultPayer]);
 
   // Apply a scanned bill: prefill whatever we could read. The form is the
   // editable preview, so the user completes anything missing before saving.
@@ -298,7 +300,9 @@ export default function ExpenseForm({
               <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 rounded-t-4xl bg-black/70 sm:rounded-4xl">
                 <div className="h-9 w-9 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                 <ShimmerText className="text-sm">Reading bill…</ShimmerText>
-                <p className="text-xs text-white/60">Extracting details from your receipt</p>
+                <p className="text-xs text-white/60">
+                  Extracting details from your receipt
+                </p>
               </div>
             )}
             <div className="mb-5 flex items-center justify-between">
@@ -357,9 +361,9 @@ export default function ExpenseForm({
                 </button>
               </div>
 
-              {(thumbnail || scanNote) && (
+              {((thumbnail && settings.showThumbnails) || scanNote) && (
                 <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-2.5">
-                  {thumbnail && (
+                  {thumbnail && settings.showThumbnails && (
                     <div className="relative shrink-0">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
@@ -398,7 +402,7 @@ export default function ExpenseForm({
                   }}
                   required
                 />
-                {!editing && !suggestionsHidden && recentTitles.length > 0 && (
+                {settings.recentSuggestions && !editing && !suggestionsHidden && recentTitles.length > 0 && (
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     {recentTitles.slice(0, 4).map((t, i) => {
                       const color = SUGGESTION_COLORS[i % SUGGESTION_COLORS.length];
@@ -655,6 +659,12 @@ export default function ExpenseForm({
                     type="button"
                     onClick={async () => {
                       if (!editing) return;
+                      if (
+                        settings.confirmDelete &&
+                        !window.confirm(`Delete “${editing.title}”? This can't be undone.`)
+                      ) {
+                        return;
+                      }
                       setBusy(true);
                       try {
                         await onDelete(editing.id);
@@ -683,7 +693,7 @@ export default function ExpenseForm({
           {/* Click-to-enlarge lightbox. The thumbnail is a tiny ~10KB JPEG so it
               looks soft when zoomed — expected, since the full photo is never
               stored. */}
-          {viewer && thumbnail && (
+          {viewer && thumbnail && settings.showThumbnails && (
             <div
               className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/85 p-6"
               onClick={() => setViewer(false)}

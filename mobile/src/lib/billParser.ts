@@ -99,12 +99,36 @@ function moneyIn(line: string): number[] {
   return out;
 }
 
+// Lines whose money value must never count as the grand total: cash tendered,
+// change handed back, deposits and struck-through MRPs can all be larger than
+// the amount actually paid.
+const MONEY_EXCLUDE = /(\bchange\b|tender|\bcash\b|deposit|\bmrp\b)/i;
+
+// The single largest "money" figure on the whole bill (currency-tagged or
+// 2-decimal), ignoring tender/change/MRP lines. On a well-printed receipt this
+// is the grand total, and it survives OCR that scrambles the totals table onto
+// the wrong rows (e.g. the net amount landing on the "Round off" line).
+function maxMoneyValue(lines: string[]): number | undefined {
+  let best: number | undefined;
+  for (const line of lines) {
+    if (MONEY_EXCLUDE.test(line)) continue;
+    for (const n of moneyIn(line)) if (best == null || n > best) best = n;
+  }
+  return best;
+}
+
 /**
  * Finds the bill's final payable amount rather than the priciest line item.
- * Strategy: score each line by how strongly it labels a total, take the number
- * on that line (or the pure-number line right below it), then return the max of
- * the highest-priority tier — the grand total. Only if no total label exists do
- * we fall back to the largest money-looking figure near the bottom of the bill.
+ * Two independent signals are combined:
+ *  1) `keyword` — the number on the strongest total-labelled line ("grand
+ *     total" > "total amount" > bare "total"), taking the figure on that line
+ *     or the pure-number line right below it.
+ *  2) `maxMoney` — the largest currency/2-decimal figure anywhere on the bill.
+ * We trust the labelled total when it's plausibly the real grand total (≥ half
+ * the biggest money figure); otherwise OCR almost certainly mislabelled a tax /
+ * round-off row, so we fall back to the largest money value. This fixes bills
+ * where the net total is OCR'd onto a "Round off" row while a tiny GST figure
+ * lands on the "Total Amount" label.
  */
 function extractAmount(lines: string[]): number | undefined {
   const cands: { priority: number; value: number }[] = [];
@@ -122,20 +146,18 @@ function extractAmount(lines: string[]): number | undefined {
     }
     if (nums.length) cands.push({ priority: p, value: Math.max(...nums) });
   }
+
+  let keyword: number | undefined;
   if (cands.length) {
     const maxP = Math.max(...cands.map((c) => c.priority));
-    return cands.filter((c) => c.priority === maxP).reduce((a, c) => (c.value > a ? c.value : a), 0);
+    keyword = cands
+      .filter((c) => c.priority === maxP)
+      .reduce((a, c) => (c.value > a ? c.value : a), 0);
   }
 
-  // No total label survived OCR — take the largest money-looking value across
-  // the whole bill. The grand total is normally the biggest such number, and
-  // currency/decimal gating keeps pincodes, phone numbers and dates out.
-  let best: number | undefined;
-  for (const line of lines) {
-    if (NON_TOTAL_KEYS.test(line)) continue;
-    for (const n of moneyIn(line)) if (best == null || n > best) best = n;
-  }
-  return best;
+  const maxMoney = maxMoneyValue(lines);
+  if (keyword != null && (maxMoney == null || keyword >= 0.5 * maxMoney)) return keyword;
+  return maxMoney ?? keyword;
 }
 
 // ── date ─────────────────────────────────────────────────────────────────────
@@ -152,47 +174,67 @@ function normYear(y: number): number {
   return y < 100 ? 2000 + y : y;
 }
 
+// Return the first regex match (scanning all, not just the first) for which
+// `build` yields a valid date. This lets us skip a bogus leading match like the
+// "TA2026-27/2528" bill number and still find the real "02-08-26" further along.
+function firstValidDate(
+  text: string,
+  re: RegExp,
+  build: (m: RegExpMatchArray) => string | null
+): string | undefined {
+  for (const m of text.matchAll(re)) {
+    const r = build(m);
+    if (r) return r;
+  }
+  return undefined;
+}
+
 function extractDate(text: string): string | undefined {
   // 1) ISO-ish: YYYY-MM-DD or YYYY/MM/DD
   // Separators may be OCR'd with stray spaces ("30 / 05 / 26"), so allow them.
-  let m = text.match(/(20\d{2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})/);
-  if (m) {
-    const y = +m[1], mo = +m[2], d = +m[3];
-    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) return `${y}-${pad(mo)}-${pad(d)}`;
-  }
+  let r = firstValidDate(
+    text,
+    /(20\d{2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})/g,
+    (m) => {
+      const y = +m[1], mo = +m[2], d = +m[3];
+      return mo >= 1 && mo <= 12 && d >= 1 && d <= 31 ? `${y}-${pad(mo)}-${pad(d)}` : null;
+    }
+  );
+  if (r) return r;
   // 2) DD Mon YYYY / Mon DD, YYYY
-  m = text.match(/(\d{1,2})\s*([A-Za-z]{3,})\.?\s*,?\s*(\d{2,4})/);
-  if (m && MONTHS[m[2].slice(0, 3).toLowerCase()]) {
-    const d = +m[1], mo = MONTHS[m[2].slice(0, 3).toLowerCase()], y = normYear(+m[3]);
-    if (d >= 1 && d <= 31) return `${y}-${pad(mo)}-${pad(d)}`;
-  }
-  m = text.match(/([A-Za-z]{3,})\.?\s+(\d{1,2}),?\s+(\d{2,4})/);
-  if (m && MONTHS[m[1].slice(0, 3).toLowerCase()]) {
-    const mo = MONTHS[m[1].slice(0, 3).toLowerCase()], d = +m[2], y = normYear(+m[3]);
-    if (d >= 1 && d <= 31) return `${y}-${pad(mo)}-${pad(d)}`;
-  }
+  r = firstValidDate(text, /(\d{1,2})\s*([A-Za-z]{3,})\.?\s*,?\s*(\d{2,4})/g, (m) => {
+    const mo = MONTHS[m[2].slice(0, 3).toLowerCase()];
+    if (!mo) return null;
+    const d = +m[1], y = normYear(+m[3]);
+    return d >= 1 && d <= 31 ? `${y}-${pad(mo)}-${pad(d)}` : null;
+  });
+  if (r) return r;
+  r = firstValidDate(text, /([A-Za-z]{3,})\.?\s+(\d{1,2}),?\s+(\d{2,4})/g, (m) => {
+    const mo = MONTHS[m[1].slice(0, 3).toLowerCase()];
+    if (!mo) return null;
+    const d = +m[2], y = normYear(+m[3]);
+    return d >= 1 && d <= 31 ? `${y}-${pad(mo)}-${pad(d)}` : null;
+  });
+  if (r) return r;
   // 3) DD/MM/YYYY or MM/DD/YYYY (default DD/MM unless first > 12)
-  m = text.match(/\b(\d{1,2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{2,4})\b/);
-  if (m) {
-    let a = +m[1], b = +m[2];
-    const y = normYear(+m[3]);
+  r = firstValidDate(text, /\b(\d{1,2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{2,4})\b/g, (m) => {
+    const a = +m[1], b = +m[2], y = normYear(+m[3]);
     let d = a, mo = b;
     if (a > 12 && b <= 12) {
       d = a; mo = b;
     } else if (b > 12 && a <= 12) {
       d = b; mo = a;
     }
-    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) return `${y}-${pad(mo)}-${pad(d)}`;
-  }
+    return mo >= 1 && mo <= 12 && d >= 1 && d <= 31 ? `${y}-${pad(mo)}-${pad(d)}` : null;
+  });
+  if (r) return r;
   // OCR often drops the separators ("Date 300526" / "Date 30052026"). Only trust
   // a bare digit run when it's anchored to a "date" label so we don't grab a
   // phone number or amount by mistake.
-  m = text.match(/date\D{0,6}(\d{2})(\d{2})(\d{4}|\d{2})\b/i);
-  if (m) {
+  return firstValidDate(text, /date\D{0,6}(\d{2})(\d{2})(\d{4}|\d{2})\b/gi, (m) => {
     const d = +m[1], mo = +m[2], y = normYear(+m[3]);
-    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) return `${y}-${pad(mo)}-${pad(d)}`;
-  }
-  return undefined;
+    return mo >= 1 && mo <= 12 && d >= 1 && d <= 31 ? `${y}-${pad(mo)}-${pad(d)}` : null;
+  });
 }
 
 // ── category ─────────────────────────────────────────────────────────────────
@@ -271,6 +313,18 @@ function titleScore(line: string): number {
 const APP_UI_NOISE =
   /(scan a bill|choose from gallery|what did you spend on|bill fetched|add expense|paid by|auto[-\s]?detected|payment mode)/i;
 
+// Boilerplate that appears near the top of receipts but is never the merchant's
+// name: copy markers, service modes, legal-entity suffixes, greetings, etc. We
+// skip these so a slogan or "(A Unit of … Pvt Ltd)" line can't win the title.
+const TITLE_NOISE =
+  /(guest\s*copy|customer\s*copy|duplicate|original\s*copy|take\s*away|dine[\s-]*in|home\s*delivery|tax\s*invoice|cash\s*memo|retail\s*invoice|bill\s*of\s*supply|thank\s*you|visit\s*again|welcome|a\s*unit\s*of|(?:pvt|private)\.?\s*(?:ltd|limited)|\bltd\b|\bllp\b|counter\s*:|\bkot\b)/i;
+
+// Words that strongly signal a business/merchant name — the line carrying one of
+// these is almost always the shop title, so we give it a firm bump over slogans
+// and taglines that OCR reads just above/below it.
+const BUSINESS_HINT =
+  /(palace|hotel|restaurant|grand\b|cafe|coffee|bakery|kitchen|foods?|\bbar\b|\binn\b|dhaba|sweets?|stores?|\bmart\b|super\s*market|pharmac|medical|hospital|clinic|traders?|enterprises?|provisions?|departmental|electronics|jewell?ers?)/i;
+
 function guessTitle(lines: string[]): string | undefined {
   let best: string | undefined;
   let bestScore = 1.5; // minimum bar — below this we treat the line as noise
@@ -278,14 +332,16 @@ function guessTitle(lines: string[]): string | undefined {
   for (let i = 0; i < top.length; i++) {
     const line = top[i];
     if (TOTAL_KEYS.test(line) || NON_TOTAL_KEYS.test(line)) continue;
-    if (APP_UI_NOISE.test(line)) continue;
+    if (APP_UI_NOISE.test(line) || TITLE_NOISE.test(line)) continue;
     if (/(www\.|http|@|gstin|tel|phone|\+\d|\d{5,})/i.test(line)) continue;
     const clean = line
       .replace(/[*_|]+/g, '')
       .replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '') // trim leading/trailing junk ("[ ", " %")
       .trim();
-    // Merchant name is usually right at the top, so nudge earlier lines up.
-    const score = titleScore(clean) - i * 0.4;
+    // Merchant name is usually right at the top, so nudge earlier lines up, and
+    // reward lines that read like an actual business name.
+    let score = titleScore(clean) - i * 0.4;
+    if (BUSINESS_HINT.test(clean)) score += 8;
     if (score > bestScore) {
       bestScore = score;
       best = clean.slice(0, 60);

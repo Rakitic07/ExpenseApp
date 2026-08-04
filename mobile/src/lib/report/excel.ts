@@ -1,5 +1,7 @@
 import * as XLSX from 'xlsx';
 import type { ReportData, ReportOptions } from './data';
+import { renderChartImage } from './chartImage';
+import { embedImageBase64 } from './xlsxImage';
 
 type Cell = string | number | Date | null;
 type Row = Cell[];
@@ -27,22 +29,55 @@ export function generateExcelBase64(data: ReportData, options: ReportOptions): s
   const wb = XLSX.utils.book_new();
   const S = options.sections;
 
+  // Row on the Summary sheet where the embedded chart image is anchored.
+  let chartRow = -1;
+
   // ── Summary ────────────────────────────────────────────────────────────────
   if (S.summary) {
-    const rows: Row[] = [
-      ['Spendly+ — Expense report'],
-      ['Space', data.spaceName || 'Space'],
-      ['Period', data.periodLabel],
-      ['Generated', data.generatedAt.toLocaleString()],
-      [],
-      ['Total spent', data.total],
-      ['Transactions', data.txnCount],
-      ['Average / transaction', data.avgPerTxn],
-    ];
+    const rows: Row[] = [];
+    const moneyCells: string[] = [];
+    const at = (r: number, c: number) => XLSX.utils.encode_cell({ r, c });
+
+    rows.push(['Spendly+ — Expense report']);
+    rows.push(['Space', data.spaceName || 'Space']);
+    rows.push(['Period', data.periodLabel]);
+    rows.push(['Generated', data.generatedAt.toLocaleString()]);
+    rows.push([]);
+    moneyCells.push(at(rows.length, 1));
+    rows.push(['Total spent', data.total]);
+    rows.push(['Transactions', data.txnCount]);
+    moneyCells.push(at(rows.length, 1));
+    rows.push(['Average / transaction', data.avgPerTxn]);
+    rows.push([]);
+
+    // Breakdown tables (the colorful donut + bars go in an embedded image below).
+    if (data.categories.length > 0) {
+      const cats = data.categories.slice(0, 8);
+      rows.push(['Spending by category']);
+      rows.push(['Category', 'Amount', 'Share %']);
+      for (const b of cats) {
+        moneyCells.push(at(rows.length, 1));
+        rows.push([b.name, b.value, Number(b.pct.toFixed(1))]);
+      }
+      rows.push([]);
+    }
+
+    if (data.payers.length > 0) {
+      const payers = data.payers.slice(0, 6);
+      rows.push(['Who paid']);
+      rows.push(['Paid by', 'Amount', 'Share %']);
+      for (const b of payers) {
+        moneyCells.push(at(rows.length, 1));
+        rows.push([b.name, b.value, Number(b.pct.toFixed(1))]);
+      }
+      rows.push([]);
+    }
+
+    chartRow = rows.length + 1; // a blank row below the tables
+
     const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols'] = [{ wch: 24 }, { wch: 28 }];
-    // Money cells at B6 (total) and B8 (avg).
-    for (const addr of ['B6', 'B8']) {
+    ws['!cols'] = [{ wch: 24 }, { wch: 16 }, { wch: 10 }, { wch: 12 }];
+    for (const addr of moneyCells) {
       if (ws[addr] && ws[addr].t === 'n') ws[addr].z = money;
     }
     XLSX.utils.book_append_sheet(wb, ws, 'Summary');
@@ -119,5 +154,24 @@ export function generateExcelBase64(data: ReportData, options: ReportOptions): s
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['No sections selected']]), 'Report');
   }
 
-  return XLSX.write(wb, { type: 'base64', bookType: 'xlsx' }) as string;
+  let b64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' }) as string;
+
+  // Embed the colorful app-style chart on the Summary sheet (below the tables).
+  if (chartRow >= 0) {
+    const chart = renderChartImage({
+      categories: data.categories,
+      payers: data.payers,
+      currencySymbol: options.currencySymbol,
+    });
+    if (chart) {
+      b64 = embedImageBase64(b64, 'Summary', chart.base64, {
+        col: 0,
+        row: chartRow,
+        widthPx: chart.widthPx,
+        heightPx: chart.heightPx,
+      });
+    }
+  }
+
+  return b64;
 }

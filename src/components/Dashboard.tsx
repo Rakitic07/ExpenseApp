@@ -20,6 +20,7 @@ import {
   ChevronRight,
   ChevronDown,
   Download,
+  AlertTriangle,
 } from "lucide-react";
 import type { Expense } from "@/lib/types";
 import {
@@ -38,11 +39,14 @@ import {
 import { MONTH_LABELS, cn } from "@/lib/utils";
 import { categoryMeta, CATEGORY_NAMES } from "@/lib/categories";
 import { useCurrency } from "@/lib/currency";
+import { useSettings } from "@/lib/settings";
 import dynamic from "next/dynamic";
 import ExpenseList from "./ExpenseList";
 import BudgetRing from "./BudgetRing";
 import DatePicker from "./DatePicker";
-import ReportModal from "./ReportModal";
+// The report modal pulls in the PDF/Excel export libs, so it's split out of the
+// initial bundle and only mounted after the user first opens it.
+const ReportModal = dynamic(() => import("./ReportModal"), { ssr: false });
 
 // Recharts is heavy, so the charts are code-split out of the initial bundle and
 // loaded on demand. This keeps first load (especially on phones) fast; a light
@@ -90,7 +94,7 @@ function ChartCard({
     <div className="glass rounded-3xl p-5">
       <div className="mb-3 flex items-center gap-2 text-sm font-medium text-white/70">
         {icon}
-        {title}
+        <span className="shimmer-hover">{title}</span>
       </div>
       {children}
     </div>
@@ -188,9 +192,10 @@ export default function Dashboard({
   // tabs janky. Mounting just the visible tab keeps the DOM small and scrolling
   // smooth. Non-tabbed (desktop + mobile browser/PWA) still shows every section.
   const show = (tab: MobileTab) => !tabbed || mobileTab === tab;
+  const { settings } = useSettings();
   const now = new Date();
   const years = useMemo(() => availableYears(expenses), [expenses]);
-  const [view, setView] = useState<View>("month");
+  const [view, setView] = useState<View>(settings.defaultPeriod);
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
   const [day, setDay] = useState(toDayValue(now));
@@ -200,10 +205,13 @@ export default function Dashboard({
   // collapsed until the user opens them — this keeps first paint light and only
   // mounts the heavy Recharts SVGs on demand. The native app keeps charts as a
   // dedicated bottom-nav tab, so this toggle is ignored there.
-  const [chartsOpen, setChartsOpen] = useState(false);
+  const [chartsOpen, setChartsOpen] = useState(!settings.chartsCollapsed);
   // Report export modal (web / PWA / desktop only — downloads are unreliable in
   // the packaged native WebView, so the button is hidden there).
   const [reportOpen, setReportOpen] = useState(false);
+  // Load the (heavy) report modal only once it's been opened, then keep it
+  // mounted so its close animation stays smooth.
+  const [reportLoaded, setReportLoaded] = useState(false);
 
   const { format: formatCurrency } = useCurrency();
 
@@ -421,7 +429,10 @@ export default function Dashboard({
         {!tabbed && (
           <button
             type="button"
-            onClick={() => setReportOpen(true)}
+            onClick={() => {
+              setReportLoaded(true);
+              setReportOpen(true);
+            }}
             className="glass-btn ml-auto px-3 py-2 text-sm"
             aria-label="Download report"
             title="Download a PDF / Excel report"
@@ -432,7 +443,7 @@ export default function Dashboard({
         )}
       </div>
 
-      {!tabbed && (
+      {!tabbed && reportLoaded && (
         <ReportModal
           open={reportOpen}
           onClose={() => setReportOpen(false)}
@@ -449,6 +460,30 @@ export default function Dashboard({
       {/* ── Overview tab (mobile) ───────────────────────────────────────── */}
       {show("overview") && (
       <div className="space-y-6">
+      {/* Budget alert (opt-in). Fires as spending nears (≥90%) or passes the
+          monthly budget — a clear, dismissible-by-setting nudge. */}
+      {view === "month" &&
+        settings.budgetAlerts &&
+        budget != null &&
+        budget > 0 &&
+        total >= budget * 0.9 && (
+          <div
+            className={cn(
+              "flex items-center gap-2.5 rounded-2xl border px-4 py-3 text-sm font-medium",
+              total > budget
+                ? "border-red-400/30 bg-red-500/10 text-red-200"
+                : "border-amber-400/30 bg-amber-500/10 text-amber-200"
+            )}
+          >
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span>
+              {total > budget
+                ? `You're ${formatCurrency(total - budget)} over your monthly budget.`
+                : `You've used ${Math.round((total / budget) * 100)}% of your monthly budget.`}
+            </span>
+          </div>
+        )}
+
       {/* Budget ring (month view) */}
       {view === "month" && !readOnly && onSetBudget && (
         <BudgetRing

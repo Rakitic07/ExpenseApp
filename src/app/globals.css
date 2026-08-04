@@ -146,6 +146,39 @@ body {
     animation: shimmer-sweep 1.8s ease-in-out infinite;
   }
 
+  /*
+   * Hover-triggered shimmer. The text sits in its normal colour and only
+   * sweeps a light band across itself while hovered / keyboard-focused — a
+   * subtle "premium" affordance on persistent headings (brand, chart titles).
+   * No animation runs when idle, so there's zero paint cost at rest.
+   */
+  .shimmer-hover {
+    cursor: default;
+  }
+  .shimmer-hover:hover,
+  .shimmer-hover:focus-visible {
+    background-image: linear-gradient(
+      100deg,
+      #b9c2ff 0%,
+      #b9c2ff 35%,
+      #ffffff 50%,
+      #b9c2ff 65%,
+      #b9c2ff 100%
+    );
+    background-size: 220% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    animation: shimmer-sweep 1.15s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .shimmer-hover:hover,
+    .shimmer-hover:focus-visible {
+      animation: none;
+    }
+  }
+
   /* Skeleton block: a translucent surface with a light bar sweeping across. */
   .skeleton {
     position: relative;

@@ -11,6 +11,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  Vibration,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -25,9 +26,9 @@ import {
   paymentProviders,
 } from '../lib/payments';
 import { scanBill } from '../lib/scan';
+import { useSettings, getSettingsSync } from '../lib/settings';
 import type { Expense } from '../lib/types';
 import { Button, Label } from '../components/ui';
-import { ShimmerText } from '../components/Shimmer';
 import { DatePickerField } from '../components/DatePickerField';
 import { Background } from '../components/Background';
 import { colors, font, radius, spacing } from '../theme';
@@ -52,11 +53,12 @@ export function ExpenseFormScreen({ route, navigation }: Props) {
   const editing: Expense | undefined = route.params?.expense;
   const { addExpense, editExpense, removeExpense } = useStore();
   const { currency } = useCurrency();
+  const { settings } = useSettings();
 
   const [title, setTitle] = useState(editing?.title ?? '');
   const [amount, setAmount] = useState(editing ? String(editing.amount) : '');
   const [category, setCategory] = useState(editing?.category ?? 'Grocery');
-  const [paidBy, setPaidBy] = useState(editing?.paidBy ?? '');
+  const [paidBy, setPaidBy] = useState(editing?.paidBy ?? getSettingsSync().defaultPayer);
   const [date, setDate] = useState(
     editing ? editing.date.slice(0, 10) : todayISO(),
   );
@@ -169,6 +171,7 @@ export function ExpenseFormScreen({ route, navigation }: Props) {
       };
       if (editing) await editExpense(editing.id, draft);
       else await addExpense(draft);
+      if (settings.haptics) Vibration.vibrate(15);
       navigation.goBack();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save');
@@ -176,11 +179,24 @@ export function ExpenseFormScreen({ route, navigation }: Props) {
     }
   };
 
-  const onDelete = async () => {
+  const doDelete = async () => {
     if (!editing) return;
     setBusy(true);
+    if (settings.haptics) Vibration.vibrate(15);
     await removeExpense(editing.id);
     navigation.goBack();
+  };
+
+  const onDelete = () => {
+    if (!editing) return;
+    if (settings.confirmDelete) {
+      Alert.alert('Delete expense', `Delete “${editing.title}”? This can't be undone.`, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => void doDelete() },
+      ]);
+      return;
+    }
+    void doDelete();
   };
 
   return (
@@ -214,9 +230,9 @@ export function ExpenseFormScreen({ route, navigation }: Props) {
             </Pressable>
           </View>
 
-          {(thumbnail || scanNote) ? (
+          {((thumbnail && settings.showThumbnails) || scanNote) ? (
             <View style={styles.scanResult}>
-              {thumbnail ? (
+              {thumbnail && settings.showThumbnails ? (
                 <View style={styles.thumbWrap}>
                   <Pressable onPress={() => setViewer(true)}>
                     <Image source={{ uri: thumbnail }} style={styles.thumb} resizeMode="cover" />
@@ -388,7 +404,7 @@ export function ExpenseFormScreen({ route, navigation }: Props) {
         <View style={styles.loadingBackdrop}>
           <View style={styles.loadingCard}>
             <ActivityIndicator size="large" color={colors.primary} />
-            <ShimmerText style={styles.loadingText}>Reading bill…</ShimmerText>
+            <Text style={styles.loadingText}>Reading bill…</Text>
             <Text style={styles.loadingSub}>Extracting details on your device</Text>
           </View>
         </View>

@@ -1,5 +1,7 @@
 import * as XLSX from "xlsx";
 import type { ReportData, ReportOptions } from "./types";
+import { renderChartPng } from "./chartImage";
+import { embedImageInSheet } from "./xlsxImage";
 
 // NOTE: SheetJS is used here for WRITING only (never parsing untrusted input),
 // so the known read/parse advisories don't apply to this usage.
@@ -66,10 +68,38 @@ export async function generateExcel(
       `${data.insights.frequentCategory.name} (${data.insights.frequentCategory.count}x)`,
     ]);
   }
+
+  // Breakdown tables (the colorful donut + bars go in an embedded image below).
+  // Layout per row: [name, share %, amount].
+  const extraMoney: string[] = [];
+  if (data.categories.length) {
+    const cats = data.categories.slice(0, 8);
+    summaryRows.push([]);
+    summaryRows.push(["Spending by category"]);
+    summaryRows.push(["Category", "Share %", "Amount"]);
+    for (const c of cats) {
+      extraMoney.push(XLSX.utils.encode_cell({ r: summaryRows.length, c: 2 }));
+      summaryRows.push([c.name, Number(c.pct.toFixed(1)), c.value]);
+    }
+  }
+  if (data.payers.length) {
+    const payers = data.payers.slice(0, 6);
+    summaryRows.push([]);
+    summaryRows.push(["Who paid"]);
+    summaryRows.push(["Paid by", "Share %", "Amount"]);
+    for (const p of payers) {
+      extraMoney.push(XLSX.utils.encode_cell({ r: summaryRows.length, c: 2 }));
+      summaryRows.push([p.name, Number(p.pct.toFixed(1)), p.value]);
+    }
+  }
+
+  // Anchor row for the chart image — a couple of blank rows below the tables.
+  const chartRow = summaryRows.length + 1;
+
   const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows, { cellDates: true });
-  wsSummary["!cols"] = [{ wch: 24 }, { wch: 32 }, { wch: 16 }];
+  wsSummary["!cols"] = [{ wch: 24 }, { wch: 12 }, { wch: 16 }, { wch: 12 }];
   // money cells: Total(row6), avg(row8), avgtxn(row9), and any insight amounts col C
-  for (const addr of ["B7", "B9", "B10", "C11", "C12"]) {
+  for (const addr of ["B7", "B9", "B10", "C11", "C12", ...extraMoney]) {
     const c = wsSummary[addr];
     if (c && typeof c.v === "number") c.z = money;
   }
@@ -140,8 +170,29 @@ export async function generateExcel(
     XLSX.utils.book_append_sheet(wb, ws, "Transactions");
   }
 
-  const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-  return new Blob([out], {
+  // NOTE: SheetJS `type: "array"` returns an ArrayBuffer — wrap it in a
+  // Uint8Array so fflate (in embedImageInSheet) can read it. Without this the
+  // image injection silently no-ops and the chart never appears.
+  let out: Uint8Array = new Uint8Array(
+    XLSX.write(wb, { bookType: "xlsx", type: "array" }) as ArrayBuffer
+  );
+
+  // Embed the colorful app-style chart on the Summary sheet (below the tables).
+  const chart = renderChartPng({
+    categories: data.categories,
+    payers: data.payers,
+    currencySymbol: options.currencySymbol,
+  });
+  if (chart) {
+    out = embedImageInSheet(out, "Summary", chart.png, {
+      col: 0,
+      row: chartRow,
+      widthPx: chart.widthPx,
+      heightPx: chart.heightPx,
+    });
+  }
+
+  return new Blob([out as BlobPart], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
 }

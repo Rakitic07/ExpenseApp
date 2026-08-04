@@ -1,23 +1,24 @@
 import { parseBill, type ParsedBill } from "@/lib/billParser";
 
 /*
- * Browser bill scanner for the PWA. Runs OCR fully on-device with tesseract.js
- * (WASM) — the photo never leaves the browser — then reuses the shared heuristic
- * parser. Produces a ~50–100KB JPEG thumbnail via <canvas>; the full photo is
+ * Browser bill scanner for the PWA. Relays a compressed copy to /api/ocr
+ * (OCR.space) for accurate text, falling back to on-device tesseract.js (WASM)
+ * when the server has no key / is offline, then reuses the shared heuristic
+ * parser. Produces a ~100–300KB JPEG thumbnail via <canvas>; the full photo is
  * discarded. Mirrors the native flow (mobile/src/lib/scan.ts).
  */
 
 export type ScanResult = {
   parsed: ParsedBill;
-  thumbnail: string | null; // base64 JPEG data URL, ~50–100KB
+  thumbnail: string | null; // base64 JPEG data URL, ~100–300KB
   rawText: string;
 };
 
-// Target a 50–100KB thumbnail: crisp when enlarged, still small for the DB.
+// Target a 100–300KB thumbnail: crisp when enlarged, still modest for the DB.
 // base64 grows ~4/3, so chars ≈ bytes * 4/3.
-const THUMB_MAX_CHARS = 137000; // ~100KB hard cap
-const THUMB_MIN_CHARS = 68000; //  ~50KB preferred floor (best-effort)
-const THUMB_MAX_DIM = 900;
+const THUMB_MAX_CHARS = 410000; // ~300KB hard cap
+const THUMB_MIN_CHARS = 137000; // ~100KB preferred floor (best-effort)
+const THUMB_MAX_DIM = 1400;
 
 function loadImage(file: Blob): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -47,11 +48,11 @@ async function makeThumbnail(file: Blob): Promise<string | null> {
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
     ctx.drawImage(img, 0, 0, w, h);
-    // Step quality high→low; the first render under the 30KB cap is the largest
-    // (clearest) allowed and usually clears the ~15KB floor. Fall back to that
-    // largest under-cap result if we dip below the floor.
+    // Step quality high→low; the first render under the ~300KB cap is the
+    // largest (clearest) allowed and usually clears the ~100KB floor. Fall back
+    // to that largest under-cap result if we dip below the floor.
     let best: string | null = null;
-    for (const q of [0.86, 0.78, 0.7, 0.62, 0.54, 0.46, 0.38, 0.3]) {
+    for (const q of [0.92, 0.86, 0.78, 0.7, 0.62, 0.54, 0.46, 0.38, 0.3]) {
       const dataUrl = canvas.toDataURL("image/jpeg", q);
       if (dataUrl.length <= THUMB_MAX_CHARS) {
         if (!best) best = dataUrl;

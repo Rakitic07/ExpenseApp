@@ -7,14 +7,14 @@ import { parseBill, type ParsedBill } from './billParser';
 
 export type ScanResult = {
   parsed: ParsedBill;
-  thumbnail: string | null; // base64 JPEG data URL, ~50–100KB
+  thumbnail: string | null; // base64 JPEG data URL, ~100–300KB
   rawText: string;
 };
 
-// Target a 50–100KB thumbnail: crisp enough to read the whole receipt when
-// enlarged, still small for the DB. base64 grows ~4/3, so chars ≈ bytes * 4/3.
-const THUMB_MAX_CHARS = 137000; // ~100KB — hard cap; a full photo never reaches DB
-const THUMB_MIN_CHARS = 68000; //  ~50KB — preferred floor (best-effort)
+// Target a 100–300KB thumbnail: crisp enough to read the whole receipt when
+// enlarged, still modest for the DB. base64 grows ~4/3, so chars ≈ bytes * 4/3.
+const THUMB_MAX_CHARS = 410000; // ~300KB — hard cap; a full photo never reaches DB
+const THUMB_MIN_CHARS = 137000; // ~100KB — preferred floor (best-effort)
 
 function stripScheme(uri: string): string {
   return uri.replace(/^file:\/\//, '');
@@ -37,16 +37,17 @@ async function ensureCameraPermission(): Promise<boolean> {
 
 async function makeThumbnail(uri: string): Promise<string | null> {
   // Keep the dimension generous and step DOWN quality in fine increments. We
-  // pick the highest-quality render that still fits under the 30KB cap — which
-  // is the largest (clearest) image allowed and normally lands above the ~15KB
-  // floor. `best` remembers the largest under-cap result as a safety net if a
-  // later (smaller) attempt is all that succeeds.
+  // pick the highest-quality render that still fits under the ~300KB cap —
+  // which is the largest (clearest) image allowed and normally lands above the
+  // ~100KB floor. `best` remembers the largest under-cap result as a safety net
+  // if a later (smaller) attempt is all that succeeds.
   const attempts: [number, number][] = [
-    [900, 90],
-    [820, 86],
-    [760, 82],
-    [700, 76],
-    [640, 70],
+    [1400, 92],
+    [1250, 90],
+    [1100, 88],
+    [950, 84],
+    [820, 78],
+    [700, 70],
     [560, 62],
     [460, 54],
     [360, 46],

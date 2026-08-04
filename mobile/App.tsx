@@ -10,6 +10,7 @@ import { StoreProvider, useStore } from './src/state/store';
 import { PeriodProvider } from './src/state/period';
 import { UpdatesProvider } from './src/state/updates';
 import { CurrencyProvider } from './src/lib/currency';
+import { SettingsProvider } from './src/lib/settings';
 import { AuthScreen } from './src/screens/AuthScreen';
 import { OverviewScreen } from './src/screens/OverviewScreen';
 import { ChartsScreen } from './src/screens/ChartsScreen';
@@ -86,6 +87,7 @@ function Root() {
 
   return (
     <CurrencyProvider space={name}>
+      <SettingsProvider space={name}>
       <PeriodProvider>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="Home" component={Tabs} />
@@ -96,6 +98,7 @@ function Root() {
           />
         </Stack.Navigator>
       </PeriodProvider>
+      </SettingsProvider>
     </CurrencyProvider>
   );
 }

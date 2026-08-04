@@ -4,10 +4,12 @@ import type { Expense } from '../lib/types';
 import { categoryMeta } from '../lib/categories';
 import { paymentLabel } from '../lib/payments';
 import { useCurrency } from '../lib/currency';
+import { useSettings } from '../lib/settings';
 import { colors, font, radius, spacing } from '../theme';
 
 function ExpenseRowBase({ e, onPress }: { e: Expense; onPress?: (e: Expense) => void }) {
   const { format } = useCurrency();
+  const { settings } = useSettings();
   const meta = categoryMeta(e.category);
   const sub = [
     e.category,
@@ -24,7 +26,7 @@ function ExpenseRowBase({ e, onPress }: { e: Expense; onPress?: (e: Expense) => 
       onPress={() => onPress?.(e)}
       android_ripple={{ color: 'rgba(255,255,255,0.06)' }}
       style={styles.row}>
-      {e.thumbnail ? (
+      {e.thumbnail && settings.showThumbnails ? (
         <Image source={{ uri: e.thumbnail }} style={styles.thumb} resizeMode="cover" />
       ) : (
         <View style={[styles.icon, { backgroundColor: meta.color + '22' }]}>

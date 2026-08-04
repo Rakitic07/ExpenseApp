@@ -19,6 +19,7 @@ import {
   writeBudgetCache,
   writeCache,
 } from '../lib/storage';
+import { loadSettings } from '../lib/settings';
 
 type Status = 'loading' | 'authed' | 'guest';
 
@@ -219,6 +220,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const last = await getLastSpace();
       if (last && token) {
         spaceRef.current = last;
+        await loadSettings(last); // warm the sync cache before providers mount
         const [cached, cachedBudget] = await Promise.all([
           readCache(last),
           readBudgetCache(last),
@@ -248,6 +250,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setName(data.name);
       spaceRef.current = data.name;
       await setLastSpace(data.name);
+      await loadSettings(data.name);
       setStatus('authed');
       await refresh();
     },
@@ -260,6 +263,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setName(data.name);
       spaceRef.current = data.name;
       await setLastSpace(data.name);
+      await loadSettings(data.name);
       setStatus('authed');
       await refresh();
       return { recoveryCode: data.recoveryCode };
