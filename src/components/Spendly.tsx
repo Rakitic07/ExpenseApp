@@ -36,6 +36,7 @@ import UpdatePrompt from "./UpdatePrompt";
 import UpdateDebugBadge from "./UpdateDebugBadge";
 import CheckUpdatesButton from "./CheckUpdatesButton";
 import DownloadLogsButton from "./DownloadLogsButton";
+import { ShimmerText } from "./Shimmer";
 
 type Status = "loading" | "guest" | "authed";
 
@@ -65,7 +66,7 @@ export default function Spendly() {
     setSyncing(true);
     let ok = true;
     try {
-      const { expenses: fresh, budget: freshBudget, mapped, ok: drained } =
+      const { expenses: fresh, budget: freshBudget, mapped, ok: drained, dropped } =
         await syncStore(space);
       ok = drained;
       if (Object.keys(mapped).length) {
@@ -74,6 +75,24 @@ export default function Spendly() {
         );
       }
       if (fresh) setExpenses(fresh);
+      // Some queued changes were permanently rejected by the server (e.g. they
+      // failed validation). They've been discarded so the queue can drain —
+      // tell the user instead of silently jamming sync forever.
+      if (dropped.length) {
+        // Drop the doomed optimistic rows from the on-screen list too.
+        const goneIds = new Set(
+          dropped
+            .map((d) => (d.op.kind === "create" ? d.op.tempId : d.op.kind === "update" ? d.op.id : d.op.id))
+        );
+        setExpenses((prev) => prev.filter((e) => !goneIds.has(e.id)));
+        const first = dropped[0];
+        const msg =
+          dropped.length > 1
+            ? `${dropped.length} changes couldn't be saved and were discarded`
+            : `A change couldn't be saved: ${first.reason}`;
+        setToast(msg);
+        window.setTimeout(() => setToast(null), 3200);
+      }
       // `undefined` means the server value wasn't touched this run — leave state.
       if (freshBudget !== undefined) setBudget(freshBudget);
       // The server responded, so we're definitely online. This self-heals a
@@ -403,8 +422,8 @@ export default function Spendly() {
         </header>
 
         {status === "loading" && (
-          <div className="grid min-h-[50vh] place-items-center text-white/50">
-            <div className="animate-pulse">Loading your space…</div>
+          <div className="grid min-h-[50vh] place-items-center">
+            <ShimmerText className="text-base">Loading your space…</ShimmerText>
           </div>
         )}
 
@@ -415,6 +434,8 @@ export default function Spendly() {
             onSetBudget={handleSetBudget}
             mobileTab={mobileTab}
             tabbed={isNative}
+            spaceName={name}
+            onToast={showToast}
             onEdit={(e) => {
               setEditing(e);
               setFormOpen(true);

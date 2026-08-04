@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { useCurrency } from "@/lib/currency";
 import { PAYMENT_MODES, OTHER_PROVIDER, paymentProviders } from "@/lib/payments";
 import DatePicker from "./DatePicker";
+import { ShimmerText } from "./Shimmer";
 
 // Distinct accent per quick-suggestion chip so a picked one lights up in colour.
 const SUGGESTION_COLORS = ["#7c8cff", "#ff6bd0", "#38d9a9", "#ffd43b"];
@@ -296,8 +297,8 @@ export default function ExpenseForm({
             {scanning && (
               <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 rounded-t-4xl bg-black/70 sm:rounded-4xl">
                 <div className="h-9 w-9 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                <p className="text-sm font-semibold">Reading bill…</p>
-                <p className="text-xs text-white/60">Extracting details in your browser</p>
+                <ShimmerText className="text-sm">Reading bill…</ShimmerText>
+                <p className="text-xs text-white/60">Extracting details from your receipt</p>
               </div>
             )}
             <div className="mb-5 flex items-center justify-between">

@@ -27,6 +27,7 @@ import {
 import { scanBill } from '../lib/scan';
 import type { Expense } from '../lib/types';
 import { Button, Label } from '../components/ui';
+import { ShimmerText } from '../components/Shimmer';
 import { DatePickerField } from '../components/DatePickerField';
 import { Background } from '../components/Background';
 import { colors, font, radius, spacing } from '../theme';
@@ -387,7 +388,7 @@ export function ExpenseFormScreen({ route, navigation }: Props) {
         <View style={styles.loadingBackdrop}>
           <View style={styles.loadingCard}>
             <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.loadingText}>Reading bill…</Text>
+            <ShimmerText style={styles.loadingText}>Reading bill…</ShimmerText>
             <Text style={styles.loadingSub}>Extracting details on your device</Text>
           </View>
         </View>

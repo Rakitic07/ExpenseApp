@@ -2,10 +2,25 @@ import type { Expense, ExpenseDraft } from "./types";
 import { apiFetch, setToken } from "./http";
 import { isNativeApp } from "./platform";
 
+// Error that carries the HTTP status so callers (e.g. the offline queue) can
+// tell a transient failure (offline / 5xx) from a permanent one (4xx bad
+// payload) and decide whether retrying could ever succeed.
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 async function handle<T>(res: Response): Promise<T> {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error((data as { error?: string }).error ?? "Something went wrong");
+    throw new ApiError(
+      (data as { error?: string }).error ?? "Something went wrong",
+      res.status
+    );
   }
   return data as T;
 }

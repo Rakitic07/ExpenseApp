@@ -31,6 +31,7 @@ import {
   ScanLine,
 } from "lucide-react";
 import { apiFetch } from "@/lib/http";
+import { ShimmerText } from "./Shimmer";
 
 /* ---------- types ---------- */
 
@@ -497,8 +498,8 @@ export default function AdminDashboard({ open, onClose }: { open: boolean; onClo
                 {/* tab content */}
                 <div className="min-h-[200px]">
                   {tabLoading ? (
-                    <div className="grid h-48 place-items-center text-white/50">
-                      <Loader2 className="h-5 w-5 animate-spin" />
+                    <div className="grid h-48 place-items-center">
+                      <ShimmerText>Loading…</ShimmerText>
                     </div>
                   ) : tabError ? (
                     <p className="rounded-xl border border-[#ff6b6b]/30 bg-[#ff6b6b]/10 px-3 py-2 text-sm text-[#ffb3b3]">{tabError}</p>

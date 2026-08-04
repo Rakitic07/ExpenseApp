@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Download } from 'lucide-react-native';
 import { useStore } from '../state/store';
 import { usePeriod } from '../state/period';
 import { useCurrency } from '../lib/currency';
@@ -20,6 +21,7 @@ import { PeriodBar } from '../components/PeriodBar';
 import { BudgetRing } from '../components/BudgetRing';
 import { ExpenseRow } from '../components/ExpenseRow';
 import { Footer } from '../components/Footer';
+import { ReportModal } from '../components/ReportModal';
 import { Button, Card } from '../components/ui';
 import { colors, font, radius, spacing } from '../theme';
 import type { RootStackParamList } from '../navigation';
@@ -40,6 +42,7 @@ export function OverviewScreen() {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [budgetModal, setBudgetModal] = useState(false);
   const [budgetInput, setBudgetInput] = useState('');
+  const [reportOpen, setReportOpen] = useState(false);
 
   const scoped = useMemo(
     () => filterByPeriod(expenses, view, year, month, day),
@@ -128,6 +131,10 @@ export function OverviewScreen() {
 
         <View style={styles.recentHead}>
           <Text style={styles.sectionTitle}>Recent</Text>
+          <Pressable onPress={() => setReportOpen(true)} style={styles.reportBtn} hitSlop={6}>
+            <Download size={15} color={colors.primary} />
+            <Text style={styles.reportBtnText}>Report</Text>
+          </Pressable>
         </View>
         <Card style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.xs }}>
           {recent.length === 0 ? (
@@ -158,6 +165,8 @@ export function OverviewScreen() {
           </View>
         </Pressable>
       </Modal>
+
+      <ReportModal open={reportOpen} onClose={() => setReportOpen(false)} />
     </SafeAreaView>
   );
 }
@@ -187,7 +196,25 @@ const styles = StyleSheet.create({
   catVal: { color: colors.text, fontSize: font.small, fontWeight: '700' },
   track: { height: 8, borderRadius: 4, backgroundColor: colors.surface2, overflow: 'hidden' },
   fill: { height: 8, borderRadius: 4 },
-  recentHead: { marginTop: spacing.lg, marginBottom: spacing.sm },
+  recentHead: {
+    marginTop: spacing.lg,
+    marginBottom: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  reportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.primary + '55',
+    backgroundColor: colors.primary + '1f',
+  },
+  reportBtnText: { color: colors.primary, fontSize: font.small, fontWeight: '700' },
   empty: { color: colors.textFaint, textAlign: 'center', padding: spacing.lg, fontSize: font.small },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   sheet: {

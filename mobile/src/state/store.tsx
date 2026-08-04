@@ -8,7 +8,7 @@ import React, {
   useState,
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { api } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 import type { Expense, ExpenseDraft } from '../lib/types';
 import {
   getLastSpace,
@@ -121,7 +121,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (queue.length === 0) return true;
       let ok = true;
       const remaining: PendingOp[] = [];
+      // Temp ids whose create was permanently rejected — their optimistic row
+      // and any later ops referencing them must be discarded too.
+      const droppedTempIds = new Set<string>();
       for (const op of queue) {
+        // A create that already failed for good: don't try its follow-up edits.
+        if (
+          (op.kind === 'update' || op.kind === 'delete') &&
+          droppedTempIds.has(op.id)
+        ) {
+          continue;
+        }
         try {
           if (op.kind === 'create') {
             const { expense } = await api.createExpense(op.draft);
@@ -140,12 +150,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             if (op.id.startsWith('local-')) continue;
             await api.deleteExpense(op.id);
           }
-        } catch {
+        } catch (err) {
+          // A permanent (4xx, non-auth) rejection can never succeed on retry and
+          // would wedge the queue forever, keeping the app stuck "offline". Drop
+          // it and remove its optimistic row instead of retrying endlessly.
+          const s = err instanceof ApiError ? err.status : 0;
+          const permanent = s >= 400 && s < 500 && s !== 401 && s !== 403 && s !== 408 && s !== 429;
+          if (permanent) {
+            const goneId = op.kind === 'create' ? op.tempId : op.id;
+            if (op.kind === 'create') droppedTempIds.add(op.tempId);
+            setExpenses(prev => prev.filter(e => e.id !== goneId));
+            continue;
+          }
           ok = false;
           remaining.push(op);
         }
       }
-      await persistQueue(remaining);
+      await persistQueue(remaining.filter(o => !(o.kind !== 'create' && droppedTempIds.has(o.id))));
       return ok;
     },
     [persistQueue],

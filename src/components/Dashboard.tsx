@@ -18,6 +18,8 @@ import {
   ArrowDown,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  Download,
 } from "lucide-react";
 import type { Expense } from "@/lib/types";
 import {
@@ -40,12 +42,13 @@ import dynamic from "next/dynamic";
 import ExpenseList from "./ExpenseList";
 import BudgetRing from "./BudgetRing";
 import DatePicker from "./DatePicker";
+import ReportModal from "./ReportModal";
 
 // Recharts is heavy, so the charts are code-split out of the initial bundle and
 // loaded on demand. This keeps first load (especially on phones) fast; a light
 // skeleton holds the layout while each chart's chunk streams in.
 const ChartFallback = () => (
-  <div className="h-[280px] w-full animate-pulse rounded-2xl bg-white/5" />
+  <div className="skeleton h-[280px] w-full rounded-2xl" />
 );
 const CategoryDonut = dynamic(() => import("./charts/CategoryDonut"), {
   ssr: false,
@@ -158,6 +161,8 @@ export default function Dashboard({
   onSetBudget,
   mobileTab = "overview",
   tabbed = false,
+  spaceName = "",
+  onToast,
 }: {
   expenses: Expense[];
   readOnly?: boolean;
@@ -171,6 +176,10 @@ export default function Dashboard({
   // Only the native app uses the tabbed phone layout. In a mobile browser / PWA
   // we show the regular stacked website layout (every section, always visible).
   tabbed?: boolean;
+  // Current space name, used to title exported reports.
+  spaceName?: string;
+  // Toast callback (owned by the parent) for report-download confirmations.
+  onToast?: (message: string) => void;
 }) {
   // On phones (native tabbed layout) MOUNT only the active tab's section instead
   // of rendering all three and CSS-hiding the inactive ones. The charts section
@@ -187,6 +196,14 @@ export default function Dashboard({
   const [day, setDay] = useState(toDayValue(now));
   const [query, setQuery] = useState("");
   const [catFilter, setCatFilter] = useState("");
+  // On web/PWA the charts sit at the bottom (after transactions) and stay
+  // collapsed until the user opens them — this keeps first paint light and only
+  // mounts the heavy Recharts SVGs on demand. The native app keeps charts as a
+  // dedicated bottom-nav tab, so this toggle is ignored there.
+  const [chartsOpen, setChartsOpen] = useState(false);
+  // Report export modal (web / PWA / desktop only — downloads are unreliable in
+  // the packaged native WebView, so the button is hidden there).
+  const [reportOpen, setReportOpen] = useState(false);
 
   const { format: formatCurrency } = useCurrency();
 
@@ -313,6 +330,43 @@ export default function Dashboard({
             })
           : "All time";
 
+  const chartsGrid = (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <ChartCard title="Spending by category" icon={<PieIcon className="h-4 w-4" />}>
+        <CategoryDonut data={cats} />
+      </ChartCard>
+
+      {/* Trend / bar charts aren't meaningful for a single day. */}
+      {view !== "day" && (
+        <ChartCard
+          title={
+            view === "month"
+              ? "Daily spending"
+              : view === "year"
+                ? "Monthly trend"
+                : "Yearly totals"
+          }
+          icon={<BarChart3 className="h-4 w-4" />}
+        >
+          {view === "year" ? <TrendArea data={trendData} /> : <Bars data={barData} />}
+        </ChartCard>
+      )}
+
+      {view !== "day" && (
+        <ChartCard
+          title={view === "month" ? "Trend across the month" : "Trend over time"}
+          icon={<TrendingUp className="h-4 w-4" />}
+        >
+          <TrendArea data={trendData} />
+        </ChartCard>
+      )}
+
+      <ChartCard title="Who paid" icon={<Users className="h-4 w-4" />}>
+        <CategoryDonut data={payers} />
+      </ChartCard>
+    </div>
+  );
+
   return (
     <div className="space-y-6">
       {/* Controls */}
@@ -362,7 +416,35 @@ export default function Dashboard({
             ))}
           </select>
         )}
+
+        {/* Export a PDF / Excel report for any period (web · PWA · desktop). */}
+        {!tabbed && (
+          <button
+            type="button"
+            onClick={() => setReportOpen(true)}
+            className="glass-btn ml-auto px-3 py-2 text-sm"
+            aria-label="Download report"
+            title="Download a PDF / Excel report"
+          >
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline">Report</span>
+          </button>
+        )}
       </div>
+
+      {!tabbed && (
+        <ReportModal
+          open={reportOpen}
+          onClose={() => setReportOpen(false)}
+          expenses={expenses}
+          spaceName={spaceName}
+          initialView={view}
+          initialYear={year}
+          initialMonth={month}
+          initialDay={day}
+          onDone={onToast}
+        />
+      )}
 
       {/* ── Overview tab (mobile) ───────────────────────────────────────── */}
       {show("overview") && (
@@ -457,45 +539,6 @@ export default function Dashboard({
       </div>
       )}
 
-      {/* ── Charts tab (mobile) ─────────────────────────────────────────── */}
-      {/* Charts */}
-      {show("charts") && (
-      <div className="grid gap-4 lg:grid-cols-2">
-        <ChartCard title="Spending by category" icon={<PieIcon className="h-4 w-4" />}>
-          <CategoryDonut data={cats} />
-        </ChartCard>
-
-        {/* Trend / bar charts aren't meaningful for a single day. */}
-        {view !== "day" && (
-          <ChartCard
-            title={
-              view === "month"
-                ? "Daily spending"
-                : view === "year"
-                  ? "Monthly trend"
-                  : "Yearly totals"
-            }
-            icon={<BarChart3 className="h-4 w-4" />}
-          >
-            {view === "year" ? <TrendArea data={trendData} /> : <Bars data={barData} />}
-          </ChartCard>
-        )}
-
-        {view !== "day" && (
-          <ChartCard
-            title={view === "month" ? "Trend across the month" : "Trend over time"}
-            icon={<TrendingUp className="h-4 w-4" />}
-          >
-            <TrendArea data={trendData} />
-          </ChartCard>
-        )}
-
-        <ChartCard title="Who paid" icon={<Users className="h-4 w-4" />}>
-          <CategoryDonut data={payers} />
-        </ChartCard>
-      </div>
-      )}
-
       {/* ── Activity tab (mobile) ───────────────────────────────────────── */}
       {/* List */}
       {show("activity") && (
@@ -582,6 +625,36 @@ export default function Dashboard({
         )}
       </div>
       )}
+
+      {/* ── Charts ───────────────────────────────────────────────────────
+          Web/PWA: charts live at the bottom (after transactions) inside a
+          collapsible panel that starts closed — expand to mount them. Native:
+          charts are their own bottom-nav tab, rendered in full. */}
+      {show("charts") &&
+        (tabbed ? (
+          chartsGrid
+        ) : (
+          <div className="space-y-4">
+            <button
+              type="button"
+              onClick={() => setChartsOpen((o) => !o)}
+              aria-expanded={chartsOpen}
+              className="glass flex w-full items-center justify-between rounded-3xl px-5 py-4 text-sm font-medium text-white/70 transition hover:text-white"
+            >
+              <span className="flex items-center gap-2">
+                <PieIcon className="h-4 w-4" />
+                Charts &amp; trends
+              </span>
+              <span className="flex items-center gap-1.5 text-xs text-white/45">
+                {chartsOpen ? "Hide" : "Show"}
+                <ChevronDown
+                  className={cn("h-4 w-4 transition-transform", chartsOpen && "rotate-180")}
+                />
+              </span>
+            </button>
+            {chartsOpen && chartsGrid}
+          </div>
+        ))}
     </div>
   );
 }

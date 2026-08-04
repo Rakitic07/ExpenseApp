@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,8 +11,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Stop, Text as SvgText } from 'react-native-svg';
+import { ShieldCheck } from 'lucide-react-native';
 import { useStore } from '../state/store';
 import { Button, Card, Label } from '../components/ui';
+import { Footer } from '../components/Footer';
+import { RecoverModal } from '../components/RecoverModal';
+import { AdminDashboard } from '../components/AdminDashboard';
 import { colors, font, radius, spacing } from '../theme';
 
 type Mode = 'login' | 'register';
@@ -45,6 +50,8 @@ export function AuthScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [recovery, setRecovery] = useState<string | null>(null);
+  const [recoverOpen, setRecoverOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
 
   const submit = async () => {
     setError('');
@@ -154,9 +161,38 @@ export function AuthScreen() {
                 ? 'New here? Switch to “Create space”.'
                 : 'Min 6-char name. You’ll get a recovery code.'}
             </Text>
+
+            <Pressable
+              onPress={() => setRecoverOpen(true)}
+              hitSlop={8}
+              style={styles.forgotWrap}>
+              <Text style={styles.forgot}>Forgot your passphrase or space name?</Text>
+            </Pressable>
           </Card>
+
+          <Text style={styles.privacy}>
+            Your passphrase is hashed and never stored in plain text. At sign-up you also get a
+            one-time recovery code — keep it safe.
+          </Text>
+
+          <Footer />
+
+          <Pressable
+            onPress={() => setAdminOpen(true)}
+            android_ripple={{ color: 'rgba(255,255,255,0.12)' }}
+            style={styles.adminBtn}>
+            <ShieldCheck size={15} color={colors.primary} />
+            <Text style={styles.adminText}>Admin dashboard</Text>
+          </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <RecoverModal
+        open={recoverOpen}
+        onClose={() => setRecoverOpen(false)}
+        initialName={name.trim()}
+      />
+      <AdminDashboard open={adminOpen} onClose={() => setAdminOpen(false)} />
     </SafeAreaView>
   );
 }
@@ -196,6 +232,31 @@ const styles = StyleSheet.create({
   },
   error: { color: colors.red, fontSize: font.small, marginTop: spacing.md },
   hint: { color: colors.textFaint, fontSize: font.tiny, textAlign: 'center', marginTop: spacing.md },
+  forgotWrap: { alignItems: 'center', marginTop: spacing.md },
+  forgot: { color: colors.textDim, fontSize: font.tiny, textDecorationLine: 'underline' },
+  adminBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    gap: 8,
+    marginTop: -spacing.xs,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 9,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderTopColor: colors.sheen,
+  },
+  adminText: { color: colors.text, fontSize: font.small, fontWeight: '700' },
+  privacy: {
+    color: colors.textFaint,
+    fontSize: font.tiny,
+    textAlign: 'center',
+    lineHeight: 16,
+    marginTop: spacing.lg,
+    paddingHorizontal: spacing.md,
+  },
   title: { color: colors.text, fontSize: font.h3, fontWeight: '800', marginBottom: 6 },
   subtle: { color: colors.textDim, fontSize: font.small, marginBottom: spacing.md },
   codeBox: {

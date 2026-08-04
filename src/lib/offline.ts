@@ -1,5 +1,5 @@
 import type { Expense, ExpenseDraft } from "./types";
-import { api } from "./api";
+import { api, ApiError } from "./api";
 
 /*
  * Offline-first store (cache + queued writes).
@@ -243,19 +243,40 @@ function remap(op: QueueOp, from: string, to: string): QueueOp {
   return op;
 }
 
+/** A queued op the server permanently rejected, kept so the UI can explain it. */
+export type DroppedOp = { op: QueueOp; reason: string };
+
 export type FlushResult = {
   /** tempId -> real server id, for optimistic rows that got created. */
   mapped: Record<string, string>;
-  /** true if the whole queue drained without error. */
+  /** true if the whole queue drained (a permanent rejection still counts). */
   ok: boolean;
+  /** Ops discarded because the server rejected them as invalid (non-retryable). */
+  dropped: DroppedOp[];
 };
+
+// A failure is "permanent" when retrying it can never succeed: the payload is
+// bad (400/413/422), the row is gone (404), or it conflicts (409). Those must
+// be dropped or they wedge the whole queue and pin the sync badge red forever.
+// Auth (401/403) and throttling/timeout (408/429) are transient, as is any
+// network/parse error (not an ApiError) — those stay queued for a later retry.
+function isPermanentFailure(err: unknown): boolean {
+  if (err instanceof ApiError) {
+    const s = err.status;
+    return s >= 400 && s < 500 && s !== 401 && s !== 403 && s !== 408 && s !== 429;
+  }
+  return false;
+}
 
 /**
  * Push queued mutations to the server, in order. Stops (and keeps the rest
- * queued) on the first failure, e.g. when offline. Safe to call repeatedly.
+ * queued) on the first *transient* failure, e.g. when offline. A *permanent*
+ * failure (bad payload) is discarded so the queue can keep draining instead of
+ * jamming forever. Safe to call repeatedly.
  */
 export async function flush(space: string): Promise<FlushResult> {
   const mapped: Record<string, string> = {};
+  const dropped: DroppedOp[] = [];
   let ops = readQueue(space);
 
   while (ops.length > 0) {
@@ -276,14 +297,24 @@ export async function flush(space: string): Promise<FlushResult> {
         ops = ops.slice(1);
       }
       writeQueue(space, ops); // persist progress after every op
-    } catch {
+    } catch (err) {
+      if (isPermanentFailure(err)) {
+        // The server will never accept this op (e.g. it failed validation).
+        // Discard it so the rest of the queue can drain and the badge can go
+        // green, but surface it so the UI can tell the user what was dropped.
+        dropped.push({ op, reason: (err as ApiError).message });
+        ops = ops.slice(1);
+        writeQueue(space, ops);
+        continue;
+      }
+      // Transient (offline / 5xx / auth): keep everything queued and retry later.
       writeQueue(space, ops);
-      return { mapped, ok: false };
+      return { mapped, ok: false, dropped };
     }
   }
 
   writeQueue(space, ops);
-  return { mapped, ok: true };
+  return { mapped, ok: true, dropped };
 }
 
 /**
@@ -300,6 +331,7 @@ export async function sync(space: string): Promise<{
   budget?: number | null;
   mapped: Record<string, string>;
   ok: boolean;
+  dropped: DroppedOp[];
 }> {
   // 1) Push a locally-edited budget first so it isn't clobbered by the pull.
   let budget: number | null | undefined;
@@ -314,7 +346,7 @@ export async function sync(space: string): Promise<{
   }
 
   // 2) Flush queued expense mutations.
-  const { mapped, ok } = await flush(space);
+  const { mapped, ok, dropped } = await flush(space);
 
   if (ok && readQueue(space).length === 0) {
     const { expenses } = await api.listExpenses();
@@ -335,7 +367,7 @@ export async function sync(space: string): Promise<{
         /* ignore — budget stays as cached */
       }
     }
-    return { expenses: merged, budget, mapped, ok: true };
+    return { expenses: merged, budget, mapped, ok: true, dropped };
   }
-  return { expenses: null, budget, mapped, ok };
+  return { expenses: null, budget, mapped, ok, dropped };
 }

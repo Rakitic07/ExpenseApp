@@ -12,6 +12,7 @@ import {
   Alert,
   AppState,
   type AppStateStatus,
+  InteractionManager,
   Linking,
   Modal,
   Pressable,
@@ -33,9 +34,12 @@ import { colors, font, radius, spacing } from '../theme';
 
 // While the app is open we quietly re-check for a newer APK on this cadence and
 // whenever it returns to the foreground (throttled) — no user action required.
-const AUTO_CHECK_MS = 2 * 60 * 1000; // 2 minutes
+// The very first check is deferred until after the app's initial render +
+// interactions settle (see InteractionManager below) so the CPU-heavy sha check
+// never lengthens startup.
+const AUTO_CHECK_MS = 10 * 60 * 1000; // 10 minutes (only while the app is open)
 const FOREGROUND_THROTTLE_MS = 90 * 1000;
-const FIRST_CHECK_DELAY_MS = 4000;
+const FIRST_CHECK_DELAY_MS = 2500; // small extra breather after interactions finish
 
 type Phase = 'idle' | 'available' | 'downloading' | 'installing' | 'error';
 
@@ -130,8 +134,22 @@ export function UpdatesProvider({ children }: { children: React.ReactNode }) {
   // Cleanup on cold launch + periodic/foreground auto-checks.
   useEffect(() => {
     purgeStaleApks();
-    const first = setTimeout(() => check(false), FIRST_CHECK_DELAY_MS);
-    const interval = setInterval(() => check(false), AUTO_CHECK_MS);
+
+    let first: ReturnType<typeof setTimeout> | undefined;
+    let interval: ReturnType<typeof setInterval> | undefined;
+
+    // Hold the first check (and the periodic cadence) until the app has finished
+    // its initial render + interactions — so opening the app stays snappy and the
+    // update work only kicks in once all features are loaded.
+    const task = InteractionManager.runAfterInteractions(() => {
+      first = setTimeout(() => {
+        check(false);
+        // Re-check every 10 minutes, but ONLY while the app is actually open.
+        interval = setInterval(() => {
+          if (AppState.currentState === 'active') check(false);
+        }, AUTO_CHECK_MS);
+      }, FIRST_CHECK_DELAY_MS);
+    });
 
     const onAppState = (s: AppStateStatus) => {
       if (s !== 'active') return;
@@ -145,8 +163,9 @@ export function UpdatesProvider({ children }: { children: React.ReactNode }) {
     const sub = AppState.addEventListener('change', onAppState);
 
     return () => {
-      clearTimeout(first);
-      clearInterval(interval);
+      task.cancel();
+      if (first) clearTimeout(first);
+      if (interval) clearInterval(interval);
       sub.remove();
     };
   }, [check]);

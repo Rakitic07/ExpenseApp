@@ -122,6 +122,62 @@ body {
   }
 }
 
+/*
+ * ---------- Shimmer loading transition (Cursor-style) ----------
+ * A soft light sweep travels across muted text, exactly like the "Editing …"
+ * status label in the agent chat. Use `.shimmer-text` on any text node for a
+ * lively "working…" state, or `.skeleton` on a block for a placeholder sweep.
+ */
+@layer components {
+  .shimmer-text {
+    background: linear-gradient(
+      100deg,
+      rgba(255, 255, 255, 0.35) 0%,
+      rgba(255, 255, 255, 0.35) 35%,
+      rgba(255, 255, 255, 0.95) 50%,
+      rgba(255, 255, 255, 0.35) 65%,
+      rgba(255, 255, 255, 0.35) 100%
+    );
+    background-size: 220% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    animation: shimmer-sweep 1.8s ease-in-out infinite;
+  }
+
+  /* Skeleton block: a translucent surface with a light bar sweeping across. */
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      100deg,
+      transparent 0%,
+      transparent 35%,
+      rgba(255, 255, 255, 0.12) 50%,
+      transparent 65%,
+      transparent 100%
+    );
+    background-size: 220% 100%;
+    animation: shimmer-sweep 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes shimmer-sweep {
+  0% {
+    background-position: 180% 0;
+  }
+  100% {
+    background-position: -80% 0;
+  }
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 10px;

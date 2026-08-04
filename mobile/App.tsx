@@ -1,5 +1,5 @@
-import React from 'react';
-import { ActivityIndicator, StatusBar, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, DarkTheme } from '@react-navigation/native';
@@ -46,18 +46,42 @@ function Tabs() {
 }
 
 function Splash() {
+  // Gentle fade + rise so the wordmark feels like a real launch screen instead
+  // of a single-frame flash.
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(10)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacity, { toValue: 1, duration: 420, useNativeDriver: true }),
+      Animated.spring(translateY, { toValue: 0, damping: 12, useNativeDriver: true }),
+    ]).start();
+  }, [opacity, translateY]);
+
   return (
     <View style={styles.splash}>
-      <Text style={styles.logo}>Spendly+</Text>
-      <ActivityIndicator color={colors.primary} style={{ marginTop: 16 }} />
+      <Animated.Text style={[styles.logo, { opacity, transform: [{ translateY }] }]}>
+        Spendly+
+      </Animated.Text>
+      <Animated.Text style={[styles.splashTag, { opacity }]}>
+        Track spending. Beautifully.
+      </Animated.Text>
     </View>
   );
 }
 
 function Root() {
   const { status, name } = useStore();
+  // Keep the splash up for a short, slightly-random beat (~0.6–1.1s) so it never
+  // vanishes in a single frame, even when we resolve auth instantly from cache.
+  const [minSplashDone, setMinSplashDone] = useState(false);
+  useEffect(() => {
+    const ms = 600 + Math.floor(Math.random() * 500);
+    const t = setTimeout(() => setMinSplashDone(true), ms);
+    return () => clearTimeout(t);
+  }, []);
 
-  if (status === 'loading') return <Splash />;
+  if (status === 'loading' || !minSplashDone) return <Splash />;
   if (status === 'guest') return <AuthScreen />;
 
   return (
@@ -99,5 +123,6 @@ export default function App() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   splash: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  logo: { color: colors.primary, fontSize: 34, fontWeight: '800' },
+  logo: { color: colors.primary, fontSize: 40, fontWeight: '800', letterSpacing: 0.5 },
+  splashTag: { color: 'rgba(244,244,255,0.55)', fontSize: 13, marginTop: 10 },
 });

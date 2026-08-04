@@ -10,10 +10,25 @@ async function apiFetch(path: string, init: RequestInit = {}): Promise<Response>
   return fetch(url, { ...init, headers, credentials: 'omit' });
 }
 
+// Carries the HTTP status so the offline queue can tell a transient failure
+// (offline / 5xx) from a permanent one (4xx bad payload) that will never
+// succeed on retry.
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 async function handle<T>(res: Response): Promise<T> {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error((data as { error?: string }).error ?? 'Something went wrong');
+    throw new ApiError(
+      (data as { error?: string }).error ?? 'Something went wrong',
+      res.status,
+    );
   }
   return data as T;
 }
@@ -77,6 +92,32 @@ export const api = {
     return handle<{ matches: string[] }>(res);
   },
 
+  // Ask an admin to approve a reset. Returns a ticket code to check status with.
+  async requestReset(
+    name: string,
+    passphrase: string,
+    questionnaire: Record<string, string>,
+  ) {
+    const res = await apiFetch('/api/auth/reset-request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, passphrase, questionnaire }),
+    });
+    return handle<{ ticket: string }>(res);
+  },
+
+  async resetStatus(name: string, ticket: string) {
+    const res = await apiFetch('/api/auth/reset-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, ticket }),
+    });
+    return handle<{
+      status: 'pending' | 'approved' | 'rejected' | 'notfound';
+      resolvedAt?: string | null;
+    }>(res);
+  },
+
   async login(name: string, passphrase: string) {
     const res = await apiFetch('/api/auth/login', {
       method: 'POST',
@@ -121,6 +162,36 @@ export const api = {
 
   async deleteExpense(id: string) {
     const res = await apiFetch(`/api/expenses/${id}`, { method: 'DELETE' });
+    return handle<{ ok: boolean }>(res);
+  },
+
+  // ── Admin (owner-only) ────────────────────────────────────────────────
+  // The admin endpoints authenticate with DATABASE_URL + AUTH_SECRET posted in
+  // the body (NOT the bearer token), and are read-only aside from reset actions.
+  // Creds are held only in memory for the session and never persisted.
+  async adminSection<T>(
+    creds: { databaseUrl: string; authSecret: string },
+    section: string,
+    extra: Record<string, unknown> = {},
+  ) {
+    const res = await apiFetch('/api/admin/stats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...creds, section, ...extra }),
+    });
+    return handle<T>(res);
+  },
+
+  async adminReset(
+    creds: { databaseUrl: string; authSecret: string },
+    requestId: string,
+    action: 'approve' | 'reject',
+  ) {
+    const res = await apiFetch('/api/admin/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...creds, requestId, action }),
+    });
     return handle<{ ok: boolean }>(res);
   },
 };

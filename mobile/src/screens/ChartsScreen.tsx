@@ -1,8 +1,17 @@
-import React, { useMemo } from 'react';
-import { Platform, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import {
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { matchFont } from '@shopify/react-native-skia';
 import { CartesianChart, Bar, Line, PolarChart, Pie } from 'victory-native';
+import { Download } from 'lucide-react-native';
 import { useStore } from '../state/store';
 import { usePeriod } from '../state/period';
 import { useCurrency } from '../lib/currency';
@@ -18,8 +27,9 @@ import {
   type Slice,
 } from '../lib/analytics';
 import { PeriodBar } from '../components/PeriodBar';
+import { ReportModal } from '../components/ReportModal';
 import { Card } from '../components/ui';
-import { colors, font, spacing } from '../theme';
+import { colors, font, radius, spacing } from '../theme';
 
 type DonutDatum = { label: string; value: number; color: string };
 
@@ -69,6 +79,7 @@ export function ChartsScreen() {
   const { view, year, month, day } = usePeriod();
   const { width } = useWindowDimensions();
   const chartWidth = width - spacing.lg * 4;
+  const [reportOpen, setReportOpen] = useState(false);
 
   const scoped = useMemo(
     () => filterByPeriod(expenses, view, year, month, day),
@@ -168,7 +179,13 @@ export function ChartsScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <Text style={styles.title}>Insights</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>Insights</Text>
+          <Pressable onPress={() => setReportOpen(true)} style={styles.reportBtn} hitSlop={6}>
+            <Download size={15} color={colors.primary} />
+            <Text style={styles.reportBtnText}>Report</Text>
+          </Pressable>
+        </View>
         <View style={{ marginTop: spacing.md }}>
           <PeriodBar />
         </View>
@@ -228,6 +245,8 @@ export function ChartsScreen() {
 
         <DonutCard title={`Who paid · ${label}`} data={payers} total={total} />
       </ScrollView>
+
+      <ReportModal open={reportOpen} onClose={() => setReportOpen(false)} />
     </SafeAreaView>
   );
 }
@@ -235,7 +254,25 @@ export function ChartsScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: 'transparent' },
   scroll: { padding: spacing.lg, paddingBottom: 120 },
-  title: { color: colors.text, fontSize: font.h2, fontWeight: '800', marginTop: spacing.sm },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing.sm,
+  },
+  title: { color: colors.text, fontSize: font.h2, fontWeight: '800' },
+  reportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.primary + '55',
+    backgroundColor: colors.primary + '1f',
+  },
+  reportBtnText: { color: colors.primary, fontSize: font.small, fontWeight: '700' },
   section: { color: colors.textDim, fontSize: font.small, fontWeight: '700', marginBottom: spacing.md },
   donutRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
   legend: { flex: 1, gap: 8 },
